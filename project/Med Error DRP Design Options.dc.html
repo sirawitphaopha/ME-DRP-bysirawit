@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "IBM Plex Sans Thai","IBM Plex Sans",sans-serif; }
+  a { color: #0E7C86; }
+  a:hover { color: #0a5a61; }
+  .opt-badge { font-family: "IBM Plex Sans", monospace; }
+  .scr::-webkit-scrollbar { width: 0; height: 0; }
+</style>
+</helmet>
+
+<section style="display:flex;flex-direction:column;gap:28px;padding:64px;background:#EEF1F3;min-height:100vh;font-family:'IBM Plex Sans Thai','IBM Plex Sans',sans-serif;">
+  <div style="display:flex;align-items:baseline;gap:16px;">
+    <span class="opt-badge" style="background:#0F172A;color:#fff;font-size:13px;font-weight:600;padding:5px 12px;border-radius:999px;letter-spacing:.03em;">TURN 1</span>
+    <h1 style="margin:0;font-size:24px;font-weight:700;color:#0F172A;">เลือกแนวทางดีไซน์ของฟอร์ม</h1>
+    <span style="font-size:15px;color:#64748B;">สองทิศทาง — เลือกได้ / ผสมได้ / ขอปรับได้</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start;">
+
+    <!-- ===================== OPTION 1A ===================== -->
+    <div id="1a" style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="opt-badge" style="background:#0E7C86;color:#fff;font-size:13px;font-weight:600;padding:4px 11px;border-radius:8px;">1a</span>
+        <div>
+          <div style="font-size:17px;font-weight:700;color:#0F172A;">Clean Clinical</div>
+          <div style="font-size:13px;color:#64748B;">โปร่ง สะอาด ปุ่มใหญ่ กดง่าย เน้นอ่านสบายบนมือถือ</div>
+        </div>
+      </div>
+
+      <!-- phone -->
+      <div style="width:392px;background:#fff;border-radius:30px;box-shadow:0 24px 60px -20px rgba(15,23,42,.35);border:1px solid #E2E8F0;overflow:hidden;">
+        <!-- status bar -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 22px 4px;font-family:'IBM Plex Sans';font-size:13px;font-weight:600;color:#0F172A;">
+          <span>9:41</span><span style="letter-spacing:2px;">● ● ●</span>
+        </div>
+        <div class="scr" style="height:720px;overflow:auto;">
+          <!-- header -->
+          <div style="padding:14px 22px 18px;">
+            <div style="font-size:20px;font-weight:700;color:#0F172A;">รายงานความคลาดเคลื่อน</div>
+            <div style="font-size:13px;color:#94A3B8;margin-top:2px;">ห้องยา OPD · Med Error & DRP</div>
+          </div>
+          <!-- segmented -->
+          <div style="margin:0 22px;background:#F1F5F9;border-radius:12px;padding:4px;display:flex;gap:4px;">
+            <div style="flex:1;text-align:center;padding:10px;border-radius:9px;background:#fff;color:#0E7C86;font-weight:600;font-size:15px;box-shadow:0 1px 3px rgba(15,23,42,.1);">Med Error</div>
+            <div style="flex:1;text-align:center;padding:10px;border-radius:9px;color:#64748B;font-weight:500;font-size:15px;">DRP</div>
+          </div>
+
+          <div style="padding:18px 22px 24px;display:flex;flex-direction:column;gap:16px;">
+            <!-- date -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">วันที่เกิดเหตุ</label>
+              <div style="margin-top:6px;display:flex;align-items:center;gap:8px;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;">
+                <span style="font-size:15px;color:#0F172A;">8 ก.ค. 2569</span>
+                <span style="margin-left:auto;background:#E6F4F1;color:#0E7C86;font-size:11px;font-weight:600;padding:3px 9px;border-radius:999px;">วันนี้</span>
+              </div>
+            </div>
+            <!-- location dropdown -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">จุดที่พบ</label>
+              <div style="margin-top:6px;display:flex;align-items:center;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;">
+                <span style="font-size:15px;color:#0F172A;">จุดจ่ายยา OPD</span>
+                <span style="margin-left:auto;color:#94A3B8;">▾</span>
+              </div>
+            </div>
+            <!-- type dropdown -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">ประเภท Error</label>
+              <div style="margin-top:6px;display:flex;align-items:center;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;">
+                <span style="font-size:15px;color:#0F172A;">Dispensing — จ่ายยาผิด</span>
+                <span style="margin-left:auto;color:#94A3B8;">▾</span>
+              </div>
+            </div>
+            <!-- severity -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">ระดับความรุนแรง <span style="color:#94A3B8;font-weight:400;">NCC MERP</span></label>
+              <div style="margin-top:8px;display:grid;grid-template-columns:repeat(9,1fr);gap:5px;">
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">A</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">B</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#0E7C86;color:#fff;font-weight:600;font-size:13px;box-shadow:0 2px 6px rgba(14,124,134,.4);">C</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">D</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">E</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">F</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">G</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">H</div>
+                <div style="text-align:center;padding:9px 0;border-radius:8px;background:#F1F5F9;color:#64748B;font-weight:600;font-size:13px;">I</div>
+              </div>
+              <div style="font-size:12px;color:#0E7C86;margin-top:7px;">C · ถึงผู้ป่วยแต่ไม่เกิดอันตราย</div>
+            </div>
+            <!-- drug -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">ชื่อยาที่เกี่ยวข้อง</label>
+              <div style="margin-top:6px;display:flex;align-items:center;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;gap:8px;">
+                <span style="color:#94A3B8;">🔍</span>
+                <span style="font-size:15px;color:#0F172A;">Amoxicillin 500 mg</span>
+              </div>
+            </div>
+            <!-- detail -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">รายละเอียดเหตุการณ์</label>
+              <div style="margin-top:6px;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;font-size:14px;color:#64748B;line-height:1.5;min-height:64px;">จ่าย Amox 500 แทน 250 ให้ผู้ป่วยเด็ก…</div>
+            </div>
+            <!-- fix -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">การแก้ไข / จัดการ</label>
+              <div style="margin-top:6px;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;font-size:14px;color:#94A3B8;line-height:1.5;min-height:48px;">โทรตามผู้ป่วยกลับ เปลี่ยนยา…</div>
+            </div>
+            <!-- reporter -->
+            <div>
+              <label style="font-size:13px;font-weight:600;color:#475569;">ผู้รายงาน</label>
+              <div style="margin-top:6px;display:flex;align-items:center;border:1.5px solid #E2E8F0;border-radius:11px;padding:12px 14px;">
+                <span style="font-size:15px;color:#0F172A;">ภญ. สมหญิง</span>
+              </div>
+            </div>
+
+            <button style="margin-top:6px;border:none;background:#0E7C86;color:#fff;font-family:inherit;font-size:16px;font-weight:600;padding:15px;border-radius:13px;box-shadow:0 8px 20px -6px rgba(14,124,134,.6);">บันทึกรายงาน</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== OPTION 1B ===================== -->
+    <div id="1b" style="display:flex;flex-direction:column;gap:16px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <span class="opt-badge" style="background:#4338CA;color:#fff;font-size:13px;font-weight:600;padding:4px 11px;border-radius:8px;">1b</span>
+        <div>
+          <div style="font-size:17px;font-weight:700;color:#0F172A;">Fast / Chip-forward</div>
+          <div style="font-size:13px;color:#64748B;">แถบสีเข้ม เลือกด้วยชิป กรอกไว เหมาะกับ power user</div>
+        </div>
+      </div>
+
+      <div style="width:392px;background:#fff;border-radius:30px;box-shadow:0 24px 60px -20px rgba(15,23,42,.35);border:1px solid #E2E8F0;overflow:hidden;">
+        <div class="scr" style="height:772px;overflow:auto;">
+          <!-- colored header -->
+          <div style="background:linear-gradient(160deg,#4338CA,#3730A3);padding:16px 22px 20px;color:#fff;">
+            <div style="display:flex;justify-content:space-between;align-items:center;font-family:'IBM Plex Sans';font-size:13px;font-weight:600;opacity:.85;">
+              <span>9:41</span><span style="letter-spacing:2px;">● ● ●</span>
+            </div>
+            <div style="font-size:20px;font-weight:700;margin-top:12px;">รายงานความคลาดเคลื่อน</div>
+            <!-- pill switch -->
+            <div style="margin-top:14px;background:rgba(255,255,255,.15);border-radius:999px;padding:4px;display:flex;gap:4px;">
+              <div style="flex:1;text-align:center;padding:9px;border-radius:999px;background:#fff;color:#4338CA;font-weight:600;font-size:14px;">Med Error</div>
+              <div style="flex:1;text-align:center;padding:9px;border-radius:999px;color:#fff;font-weight:500;font-size:14px;">DRP</div>
+            </div>
+          </div>
+
+          <div style="padding:18px 22px 24px;display:flex;flex-direction:column;gap:15px;">
+            <!-- date row compact -->
+            <div style="display:flex;gap:10px;">
+              <div style="flex:1;">
+                <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">วันที่</label>
+                <div style="margin-top:5px;background:#F5F3FF;border-radius:9px;padding:11px 12px;font-size:15px;color:#312E81;font-weight:600;">8 ก.ค. 69</div>
+              </div>
+              <div style="flex:1;">
+                <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">จุดที่พบ</label>
+                <div style="margin-top:5px;background:#F5F3FF;border-radius:9px;padding:11px 12px;font-size:14px;color:#312E81;display:flex;align-items:center;">จ่ายยา<span style="margin-left:auto;color:#A5B4FC;">▾</span></div>
+              </div>
+            </div>
+
+            <!-- type as chips -->
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">ประเภท Error</label>
+              <div style="margin-top:7px;display:flex;flex-wrap:wrap;gap:7px;">
+                <span style="font-size:13px;padding:8px 13px;border-radius:999px;background:#EEF2FF;color:#4338CA;">Prescribing</span>
+                <span style="font-size:13px;padding:8px 13px;border-radius:999px;background:#4338CA;color:#fff;font-weight:600;">Dispensing</span>
+                <span style="font-size:13px;padding:8px 13px;border-radius:999px;background:#EEF2FF;color:#4338CA;">Transcribing</span>
+                <span style="font-size:13px;padding:8px 13px;border-radius:999px;background:#EEF2FF;color:#4338CA;">Administration</span>
+              </div>
+            </div>
+
+            <!-- severity chips A-I -->
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">ระดับ NCC MERP</label>
+              <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap;">
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">A</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">B</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#4338CA;color:#fff;font-weight:700;font-size:14px;">C</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">D</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">E</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">F</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">G</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">H</span>
+                <span style="width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:9px;background:#EEF2FF;color:#6366F1;font-weight:600;font-size:14px;">I</span>
+              </div>
+            </div>
+
+            <!-- drug -->
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">ยาที่เกี่ยวข้อง</label>
+              <div style="margin-top:6px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 12px;font-size:15px;color:#0F172A;">Amoxicillin 500 mg</div>
+            </div>
+
+            <!-- detail -->
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">รายละเอียดเหตุการณ์</label>
+              <div style="margin-top:6px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 12px;font-size:14px;color:#64748B;line-height:1.5;min-height:56px;">จ่าย Amox 500 แทน 250…</div>
+            </div>
+            <!-- fix -->
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">การแก้ไข</label>
+              <div style="margin-top:6px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 12px;font-size:14px;color:#94A3B8;line-height:1.5;min-height:40px;">โทรตามผู้ป่วยกลับ…</div>
+            </div>
+            <!-- reporter -->
+            <div>
+              <label style="font-size:12px;font-weight:600;color:#6366F1;text-transform:uppercase;letter-spacing:.04em;">ผู้รายงาน</label>
+              <div style="margin-top:6px;background:#F8FAFC;border:1px solid #E2E8F0;border-radius:9px;padding:11px 12px;font-size:15px;color:#0F172A;">ภญ. สมหญิง</div>
+            </div>
+
+            <button style="margin-top:4px;border:none;background:#4338CA;color:#fff;font-family:inherit;font-size:16px;font-weight:600;padding:15px;border-radius:12px;box-shadow:0 8px 20px -6px rgba(67,56,202,.6);">บันทึก & รายงานถัดไป</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== NOTES ===================== -->
+    <div style="width:300px;display:flex;flex-direction:column;gap:16px;padding-top:44px;">
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:18px;">
+        <div style="font-size:14px;font-weight:700;color:#0F172A;margin-bottom:8px;">ทั้งสองแบบมีเหมือนกัน</div>
+        <ul style="margin:0;padding-left:18px;font-size:13px;color:#475569;line-height:1.7;">
+          <li>สวิตช์ Med Error / DRP</li>
+          <li>วันที่ default = วันนี้ แก้ได้</li>
+          <li>Dropdown จุดที่พบ · ประเภท · ยา</li>
+          <li>NCC MERP A–I</li>
+          <li>ช่องเหตุการณ์ · การแก้ไข · ผู้รายงาน</li>
+          <li>ใช้ได้ทั้งมือถือและเว็บ</li>
+        </ul>
+      </div>
+      <div style="background:#fff;border:1px solid #E2E8F0;border-radius:14px;padding:18px;">
+        <div style="font-size:14px;font-weight:700;color:#0F172A;margin-bottom:8px;">ขั้นต่อไป</div>
+        <p style="margin:0;font-size:13px;color:#475569;line-height:1.6;">เลือก <b>1a</b> หรือ <b>1b</b> (หรือผสม) แล้วผมจะทำฟอร์มจริง + DRP + Dashboard + ออกแบบ schema Supabase ให้ครับ</p>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+</body>
+</html>

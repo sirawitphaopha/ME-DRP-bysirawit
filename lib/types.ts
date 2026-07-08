@@ -1,0 +1,97 @@
+// ชนิดข้อมูลของรายงาน incident (Med Error / DRP)
+
+export type IncidentType = "med" | "drp";
+
+export interface Incident {
+  id: string;
+  type: IncidentType;
+  occurred_at: string; // YYYY-MM-DD
+  occurred_time?: string; // HH:MM
+  shift?: string;
+  hn?: string;
+  reporter?: string;
+  drug?: string; // ข้อความรวม (join ด้วย ", ")
+  drugs?: string[]; // รายการยาหลายตัว
+  high_alert?: boolean;
+  lasa?: boolean;
+  attachment?: string | null; // data URL
+  detail?: string;
+
+  // Med Error
+  location?: string;
+  error_type?: string;
+  error_nature?: string[] | string; // array (ใหม่) หรือ string (ข้อมูลเก่า)
+  error_nature_other?: string;
+  severity?: string;
+  management?: string;
+
+  // DRP
+  drp_type?: string;
+  drp_type_other?: string;
+  cause?: string;
+  intervention?: string;
+  outcome?: string;
+
+  // แก้ไข / ประวัติ
+  edited?: boolean;
+  edited_at?: string;
+  edit_count?: number;
+  history?: Incident[];
+  saved_at?: string; // ใช้ใน snapshot ของ history
+
+  is_demo?: boolean;
+  created_at?: string;
+}
+
+export interface FormState {
+  occurred_at: string;
+  occurred_time: string;
+  hn: string;
+  location: string;
+  error_type: string;
+  error_nature: string[];
+  error_nature_other: string;
+  severity: string;
+  drp_type: string;
+  drp_type_other: string;
+  cause: string;
+  intervention: string;
+  outcome: string;
+  drugs: string[];
+  drug: string;
+  high_alert: boolean;
+  lasa: boolean;
+  attachment: string | null;
+  detail: string;
+  management: string;
+  reporter: string;
+}
+
+export interface RecordFilter {
+  q: string;
+  type: "all" | IncidentType;
+  location: string;
+  error_type: string;
+  error_nature: string;
+  severity: string;
+  drp_type: string;
+  outcome: string;
+  reporter: string;
+  shift: string;
+  high_alert: string;
+  from: string;
+  to: string;
+}
+
+export interface DashRange {
+  preset: "all" | "month" | "quarter" | "year" | "custom";
+  from: string;
+  to: string;
+}
+
+export interface SupabaseCfg {
+  url: string;
+  key: string;
+}
+
+export type ViewName = "form" | "records" | "dashboard" | "settings";

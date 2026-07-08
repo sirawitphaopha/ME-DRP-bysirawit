@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#EEF6F4; font-family:"Sarabun",sans-serif; color:#0F172A; }
+  a { color:#0F8A80; }
+  a:hover { color:#0B655D; }
+  input, textarea, select, button { font-family:inherit; }
+  ::-webkit-scrollbar { width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb { background:#B6D8D2; border-radius:6px; }
+  @keyframes toastIn { from{opacity:0;transform:translate(-50%,16px);} to{opacity:1;transform:translate(-50%,0);} }
+  select { -webkit-appearance:none; appearance:none; background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2.5'><path d='M6 9l6 6 6-6'/></svg>"); background-repeat:no-repeat; background-position:right 14px center; }
+  @media print { .no-print { display:none !important; } body { background:#fff; } * { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+</style>
+</helmet>
+
+<div style="min-height:100vh;">
+  <!-- ============ TOP NAV ============ -->
+  <div class="no-print" style="position:sticky;top:0;z-index:30;background:linear-gradient(100deg,#0F8A80,#0B655D);color:#Dff1ee;display:flex;align-items:center;gap:14px;padding:12px 20px;box-shadow:0 2px 12px rgba(11,101,93,.3);">
+    <div style="display:flex;align-items:center;gap:11px;">
+      <div style="width:36px;height:36px;border-radius:11px;background:linear-gradient(155deg,#FCC637,#F59012);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:20px;box-shadow:0 4px 10px -2px rgba(245,144,18,.55);">℞</div>
+      <div>
+        <div style="font-size:15px;font-weight:700;color:#fff;line-height:1.1;">รายงานความคลาดเคลื่อน</div>
+        <div style="font-size:11.5px;color:#AEE0DA;">{{ orgName }} · Med Error & DRP</div>
+      </div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:6px;">
+      <button onClick="{{ goForm }}" style="{{ navFormStyle }}">กรอกข้อมูล</button>
+      <button onClick="{{ goRecords }}" style="{{ navRecStyle }}">รายการ</button>
+      <button onClick="{{ goDash }}" style="{{ navDashStyle }}">Dashboard</button>
+      <button onClick="{{ goSet }}" style="{{ navSetStyle }}">ตั้งค่า</button>
+    </div>
+  </div>
+
+  <!-- ============ FORM VIEW ============ -->
+  <sc-if value="{{ isForm }}" hint-placeholder-val="{{ true }}">
+  <div style="max-width:600px;margin:0 auto;padding:22px 16px 60px;">
+    <div style="background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 12px 34px -18px rgba(11,101,93,.4);border:1px solid #D6EAE6;">
+      <div style="background:linear-gradient(150deg,#0F8A80,#0B655D);padding:22px 24px;color:#E6F5F2;">
+        <div style="font-size:22px;font-weight:700;color:#fff;">แบบฟอร์มรายงาน</div>
+        <div style="font-size:13px;color:#B4E1DB;margin-top:3px;">บันทึกได้รวดเร็ว · ใช้ได้ทั้งมือถือและเว็บ</div>
+      </div>
+
+      <div style="padding:18px 22px 26px;">
+        <div style="background:#E8F4F1;border-radius:13px;padding:4px;display:flex;gap:4px;margin-bottom:20px;">
+          <button onClick="{{ setMed }}" style="{{ medTabStyle }}">Med Error</button>
+          <button onClick="{{ setDrp }}" style="{{ drpTabStyle }}">DRP</button>
+        </div>
+
+        <div style="display:flex;gap:12px;margin-bottom:16px;">
+          <div style="flex:1;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">วันที่เกิดเหตุ</label>
+            <div style="position:relative;">
+              <input type="date" value="{{ f.occurred_at }}" onChange="{{ onDate }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 13px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+              <sc-if value="{{ isToday }}" hint-placeholder-val="{{ true }}"><span style="position:absolute;right:40px;top:50%;transform:translateY(-50%);background:#FEF3E2;color:#B45309;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;pointer-events:none;">วันนี้</span></sc-if>
+            </div>
+          </div>
+          <div style="flex:1;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">เวลาที่พบ <span style="color:#0F8A80;font-weight:500;">· {{ shiftLabel }}</span></label>
+            <input type="time" value="{{ f.occurred_time }}" onChange="{{ onTime }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 13px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+          </div>
+        </div>
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">HN ผู้ป่วย</label>
+          <input value="{{ f.hn }}" onChange="{{ onHN }}" placeholder="เช่น 1234567" type="tel" inputmode="numeric" pattern="[0-9]*" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+        </div>
+
+        <!-- MED -->
+        <sc-if value="{{ isMed }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">จุดที่พบ</label>
+            <select value="{{ f.location }}" onChange="{{ onLocation }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+              <sc-for list="{{ locations }}" as="loc" hint-placeholder-count="5"><option value="{{ loc }}">{{ loc }}</option></sc-for>
+            </select>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;">ประเภท Error <span style="color:#DC2626;">*</span></label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              <sc-for list="{{ errorChips }}" as="c" hint-placeholder-count="4"><button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button></sc-for>
+            </div>
+            <sc-if value="{{ hasErrorSel }}" hint-placeholder-val="{{ true }}"><div style="margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:9px 12px;font-size:13px;color:#92400E;line-height:1.5;">{{ errorDesc }}</div></sc-if>
+            <sc-if value="{{ errErrorType }}" hint-placeholder-val="{{ false }}"><div style="margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;">⚠ กรุณาเลือกประเภท Error</div></sc-if>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;">ลักษณะความคลาดเคลื่อน <span style="color:#94A3B8;font-weight:400;">ผิดอะไร · เลือกได้หลายอัน</span></label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              <sc-for list="{{ natureChips }}" as="c" hint-placeholder-count="8"><button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button></sc-for>
+            </div>
+            <sc-if value="{{ hasNatureSel }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:9px;">
+                <sc-for list="{{ natureSel }}" as="n" hint-placeholder-count="1">
+                  <div style="display:flex;gap:9px;align-items:flex-start;">
+                    <span style="flex:none;background:#F5A623;color:#3B2200;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;">{{ n.key }}</span>
+                    <span style="font-size:12.5px;color:#92400E;line-height:1.5;">{{ n.desc }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ showNatureOther }}" hint-placeholder-val="{{ false }}">
+              <input value="{{ f.error_nature_other }}" onChange="{{ onNatureOther }}" placeholder="ระบุลักษณะเพิ่มเติม…" style="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+            </sc-if>
+          </div>
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;align-items:center;margin-bottom:8px;gap:8px;">
+              <label style="font-size:13px;font-weight:600;color:#475569;">ระดับความรุนแรง <span style="color:#94A3B8;font-weight:400;">NCC MERP</span> <span style="color:#DC2626;">*</span></label>
+              <button onClick="{{ toggleSevLegend }}" style="margin-left:auto;border:1px solid #F6D89A;background:#FEF7EC;color:#B45309;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:5px;" style-hover="background:#FDEFD6">ⓘ {{ sevLegendLabel }}</button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+              <sc-for list="{{ sevGroups }}" as="g" hint-placeholder-count="4">
+                <div style="{{ g.boxStyle }}">
+                  <div style="{{ g.labelStyle }}">{{ g.label }}</div>
+                  <div style="display:flex;gap:5px;">
+                    <sc-for list="{{ g.cells }}" as="s" hint-placeholder-count="3"><button onClick="{{ s.onClick }}" style="{{ s.style }}">{{ s.code }}</button></sc-for>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ hasSevSel }}" hint-placeholder-val="{{ true }}"><div style="margin-top:9px;font-size:13px;color:#B45309;font-weight:500;line-height:1.5;">{{ sevDesc }}</div></sc-if>
+            <sc-if value="{{ errSeverity }}" hint-placeholder-val="{{ false }}"><div style="margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;">⚠ กรุณาเลือกระดับความรุนแรง</div></sc-if>
+            <sc-if value="{{ showSevLegend }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-top:10px;background:#FBFDFC;border:1px solid #E3EFEC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;">
+                <div style="font-size:12.5px;font-weight:700;color:#0B655D;">ความหมายระดับความรุนแรง (NCC MERP Index)</div>
+                <sc-for list="{{ sevLegend }}" as="lg" hint-placeholder-count="9">
+                  <div style="display:flex;gap:10px;align-items:flex-start;">
+                    <span style="{{ lg.badgeStyle }}">{{ lg.code }}</span>
+                    <span style="font-size:12.5px;color:#475569;line-height:1.45;padding-top:3px;">{{ lg.desc }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">ชื่อยาที่เกี่ยวข้อง <span style="color:#94A3B8;font-weight:400;">เพิ่มได้หลายตัว</span></label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <sc-for list="{{ drugRows }}" as="dr" hint-placeholder-count="1">
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input value="{{ dr.value }}" onChange="{{ dr.onChange }}" placeholder="เช่น Amoxicillin 500 mg" style="flex:1;min-width:0;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+                  <sc-if value="{{ dr.canRemove }}" hint-placeholder-val="{{ false }}"><button onClick="{{ dr.onRemove }}" style="flex:none;border:1.5px solid #E2E8F0;background:#fff;color:#B42318;width:44px;height:44px;border-radius:11px;font-size:20px;cursor:pointer;line-height:1;">×</button></sc-if>
+                </div>
+              </sc-for>
+              <button onClick="{{ addDrug }}" style="align-self:flex-start;border:1.5px dashed #C6DED9;background:#F5FAF9;color:#0B655D;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:10px;cursor:pointer;" style-hover="border-color:#F5A623;color:#B45309">+ เพิ่มยา</button>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">รายละเอียดเหตุการณ์</label>
+            <textarea value="{{ f.detail }}" onChange="{{ onDetail }}" rows="3" placeholder="พิมพ์คร่าว ๆ ว่าเกิดอะไรขึ้น…" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+          </div>
+          <div style="margin-bottom:18px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">การแก้ไข / จัดการ</label>
+            <textarea value="{{ f.management }}" onChange="{{ onManage }}" rows="2" placeholder="ดำเนินการอย่างไรต่อ…" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- DRP -->
+        <sc-if value="{{ isDrp }}" hint-placeholder-val="{{ true }}">
+        <div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;">ประเภทปัญหา DRP <span style="color:#DC2626;">*</span></label>
+            <div style="display:flex;flex-wrap:wrap;gap:8px;">
+              <sc-for list="{{ drpChips }}" as="c" hint-placeholder-count="7"><button onClick="{{ c.onClick }}" style="{{ c.style }}">{{ c.label }}</button></sc-for>
+            </div>
+            <sc-if value="{{ hasDrpSel }}" hint-placeholder-val="{{ true }}"><div style="margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:9px 12px;font-size:13px;color:#92400E;line-height:1.5;">{{ drpDesc }}</div></sc-if>
+            <sc-if value="{{ showDrpOther }}" hint-placeholder-val="{{ false }}">
+              <input value="{{ f.drp_type_other }}" onChange="{{ onDrpOther }}" placeholder="ระบุปัญหา DRP เพิ่มเติม…" style="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+            </sc-if>
+            <sc-if value="{{ errDrpType }}" hint-placeholder-val="{{ false }}"><div style="margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;">⚠ กรุณาเลือกประเภทปัญหา DRP</div></sc-if>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">ยาที่เกี่ยวข้อง <span style="color:#94A3B8;font-weight:400;">เพิ่มได้หลายตัว</span></label>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <sc-for list="{{ drugRows }}" as="dr" hint-placeholder-count="1">
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input value="{{ dr.value }}" onChange="{{ dr.onChange }}" placeholder="เช่น Warfarin 2 mg" style="flex:1;min-width:0;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+                  <sc-if value="{{ dr.canRemove }}" hint-placeholder-val="{{ false }}"><button onClick="{{ dr.onRemove }}" style="flex:none;border:1.5px solid #E2E8F0;background:#fff;color:#B42318;width:44px;height:44px;border-radius:11px;font-size:20px;cursor:pointer;line-height:1;">×</button></sc-if>
+                </div>
+              </sc-for>
+              <button onClick="{{ addDrug }}" style="align-self:flex-start;border:1.5px dashed #C6DED9;background:#F5FAF9;color:#0B655D;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:10px;cursor:pointer;" style-hover="border-color:#F5A623;color:#B45309">+ เพิ่มยา</button>
+            </div>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">สาเหตุของปัญหา</label>
+            <textarea value="{{ f.cause }}" onChange="{{ onCause }}" rows="2" placeholder="ระบุสาเหตุ…" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">การ Intervention</label>
+            <select value="{{ f.intervention }}" onChange="{{ onIntervention }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+              <sc-for list="{{ interventions }}" as="iv" hint-placeholder-count="6"><option value="{{ iv }}">{{ iv }}</option></sc-for>
+            </select>
+          </div>
+          <div style="margin-bottom:16px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;">ผลลัพธ์การ Intervention <span style="color:#DC2626;">*</span></label>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <sc-for list="{{ outcomeChips }}" as="o" hint-placeholder-count="3"><button onClick="{{ o.onClick }}" style="{{ o.style }}">{{ o.label }}</button></sc-for>
+            </div>
+            <sc-if value="{{ errOutcome }}" hint-placeholder-val="{{ false }}"><div style="margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;">⚠ กรุณาเลือกผลลัพธ์</div></sc-if>
+          </div>
+          <div style="margin-bottom:18px;">
+            <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">รายละเอียดเพิ่มเติม</label>
+            <textarea value="{{ f.detail }}" onChange="{{ onDetail }}" rows="2" placeholder="บันทึกเพิ่มเติม…" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+          </div>
+        </div>
+        </sc-if>
+
+        <div style="margin-bottom:16px;">
+          <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;">ธงเตือนยา</label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button onClick="{{ toggleHighAlert }}" style="{{ highAlertStyle }}">⚠ High-alert</button>
+            <button onClick="{{ toggleLasa }}" style="{{ lasaStyle }}">🔁 LASA (ชื่อ/รูปคล้าย)</button>
+          </div>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;">แนบรูป <span style="color:#94A3B8;font-weight:400;">ฉลาก / ใบสั่งยา</span></label>
+          <sc-if value="{{ hasAttach }}" hint-placeholder-val="{{ false }}">
+            <div style="position:relative;display:inline-block;">
+              {{ attachImgEl }}
+              <button onClick="{{ clearAttach }}" style="position:absolute;top:6px;right:6px;border:none;background:rgba(15,23,42,.7);color:#fff;width:26px;height:26px;border-radius:8px;font-size:15px;cursor:pointer;line-height:1;">×</button>
+            </div>
+          </sc-if>
+          <label style="display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed #C6DED9;border-radius:12px;padding:14px;font-size:14px;color:#0B655D;font-weight:600;cursor:pointer;margin-top:8px;background:#F5FAF9;" style-hover="border-color:#F5A623;color:#B45309">
+            📎 เลือกรูปเพื่อแนบ
+            <input type="file" accept="image/*" onChange="{{ onAttach }}" style="display:none;">
+          </label>
+        </div>
+
+        <div style="margin-bottom:20px;">
+          <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">ผู้รายงาน <span style="color:#DC2626;">*</span></label>
+          <input value="{{ f.reporter }}" onChange="{{ onReporter }}" placeholder="เช่น ภญ. สมหญิง" style="{{ reporterStyle }}" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+          <sc-if value="{{ errReporter }}" hint-placeholder-val="{{ false }}"><div style="margin-top:5px;font-size:12.5px;color:#DC2626;font-weight:600;">⚠ กรุณาระบุผู้รายงาน</div></sc-if>
+        </div>
+
+        <button onClick="{{ save }}" style="width:100%;border:none;background:#F5A623;color:#3B2200;font-size:16px;font-weight:700;padding:15px;border-radius:13px;cursor:pointer;box-shadow:0 10px 22px -8px rgba(245,166,35,.7);" style-hover="background:#E4980E">{{ saveLabel }}</button>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ DASHBOARD VIEW ============ -->
+  <sc-if value="{{ isDash }}" hint-placeholder-val="{{ false }}">
+  <div style="max-width:1140px;margin:0 auto;padding:24px 18px 70px;">
+    <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:16px;">
+      <div>
+        <div style="font-size:24px;font-weight:700;color:#0B655D;">ภาพรวมข้อมูล</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">Med Error & DRP · {{ orgName }} · <span style="color:#0F8A80;font-weight:600;">{{ rangeLabel }}</span></div>
+      </div>
+      <div class="no-print" style="margin-left:auto;display:flex;gap:6px;background:#E3F0ED;padding:4px;border-radius:11px;align-items:center;">
+        <button onClick="{{ filtAll }}" style="{{ filtAllStyle }}">ทั้งหมด</button>
+        <button onClick="{{ filtMed }}" style="{{ filtMedStyle }}">Med Error</button>
+        <button onClick="{{ filtDrp }}" style="{{ filtDrpStyle }}">DRP</button>
+        <button onClick="{{ exportCsv }}" style="margin-left:4px;border:none;background:#0B655D;color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;cursor:pointer;">↓ CSV</button>
+        <button onClick="{{ printReport }}" style="border:none;background:#F5A623;color:#3B2200;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;">🖨 พิมพ์สรุป</button>
+      </div>
+    </div>
+
+    <div class="no-print" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:20px;">
+      <span style="font-size:13px;color:#64748B;font-weight:600;margin-right:2px;">ช่วงเวลา:</span>
+      <div style="display:flex;gap:6px;background:#EAF3F1;padding:4px;border-radius:11px;">
+        <button onClick="{{ setRangeAll }}" style="{{ rangeAllStyle }}">ทั้งหมด</button>
+        <button onClick="{{ setRangeMonth }}" style="{{ rangeMonthStyle }}">เดือนนี้</button>
+        <button onClick="{{ setRangeQuarter }}" style="{{ rangeQuarterStyle }}">ไตรมาส</button>
+        <button onClick="{{ setRangeYear }}" style="{{ rangeYearStyle }}">ปีนี้</button>
+        <button onClick="{{ setRangeCustom }}" style="{{ rangeCustomStyle }}">กำหนดเอง</button>
+      </div>
+      <sc-if value="{{ isCustomRange }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="date" value="{{ rangeFrom }}" onChange="{{ onRangeFrom }}" style="border:1.5px solid #DCE7E5;border-radius:9px;padding:7px 11px;font-size:13px;outline:none;" style-focus="border-color:#F5A623">
+          <span style="color:#94A3B8;font-size:13px;">ถึง</span>
+          <input type="date" value="{{ rangeTo }}" onChange="{{ onRangeTo }}" style="border:1.5px solid #DCE7E5;border-radius:9px;padding:7px 11px;font-size:13px;outline:none;" style-focus="border-color:#F5A623">
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;">
+      <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+        <div onMouseEnter="{{ k.onHover }}" style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:16px 18px;cursor:default;transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;" style-hover="transform:translateY(-4px);box-shadow:0 14px 30px -14px rgba(11,101,93,.45);border-color:#F5A623">
+          <div style="font-size:12.5px;color:#64748B;font-weight:500;">{{ k.label }}</div>
+          <div style="font-size:30px;font-weight:700;color:#0B655D;line-height:1.2;margin-top:4px;">{{ k.value }}</div>
+          <div style="font-size:12px;color:#B45309;font-weight:600;margin-top:2px;">{{ k.sub }}</div>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:16px;">
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:16px;">จำนวนเคสรายเดือน (6 เดือน)</div>
+        <div style="display:flex;align-items:flex-end;gap:12px;height:150px;padding-top:6px;">
+          <sc-for list="{{ monthBars }}" as="b" hint-placeholder-count="6">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;">
+              <div style="font-size:12px;font-weight:700;color:#0B655D;">{{ b.count }}</div>
+              <div style="{{ b.barStyle }}" style-hover="filter:brightness(1.14)"></div>
+              <div style="font-size:11px;color:#64748B;">{{ b.label }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:16px;">ระดับความรุนแรง (NCC MERP)</div>
+        <div style="display:flex;align-items:flex-end;gap:5px;height:120px;">
+          <sc-for list="{{ sevBars }}" as="s" hint-placeholder-count="9">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;">
+              <div style="font-size:11px;font-weight:700;color:#0B655D;">{{ s.count }}</div>
+              <div style="{{ s.barStyle }}" style-hover="filter:brightness(1.12)"></div>
+              <div style="font-size:11px;color:#64748B;font-weight:600;">{{ s.code }}</div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;">{{ breakTitle }}</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <sc-for list="{{ typeBreak }}" as="t" hint-placeholder-count="4">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#334155;">{{ t.label }}</span><span style="color:#0B655D;font-weight:600;">{{ t.count }}</span></div>
+              <div style="height:9px;background:#EAF3F1;border-radius:999px;overflow:hidden;"><div style="{{ t.barStyle }}"></div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;">ยาที่พบปัญหาบ่อยที่สุด</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <sc-for list="{{ topDrugs }}" as="d" hint-placeholder-count="6">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#334155;">{{ d.name }}</span><span style="color:#0B655D;font-weight:600;">{{ d.count }}</span></div>
+              <div style="height:9px;background:#EAF3F1;border-radius:999px;overflow:hidden;"><div style="{{ d.barStyle }}"></div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;margin-bottom:16px;">
+      <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;">ผลลัพธ์การ Intervention (DRP)</div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+        <sc-for list="{{ interv }}" as="i" hint-placeholder-count="3">
+          <div style="{{ i.cardStyle }}">
+            <div style="font-size:26px;font-weight:700;">{{ i.count }}</div>
+            <div style="font-size:12.5px;font-weight:500;margin-top:2px;">{{ i.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <!-- OPD / shift breakdowns -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;">
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;">แยกตามจุดที่พบ (OPD)</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <sc-for list="{{ locBreak }}" as="t" hint-placeholder-count="2">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#334155;">{{ t.label }}</span><span style="color:#0B655D;font-weight:600;">{{ t.count }}</span></div>
+              <div style="height:9px;background:#EAF3F1;border-radius:999px;overflow:hidden;"><div style="{{ t.barStyle }}"></div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;">แยกตามช่วงเวร</div>
+        <div style="display:flex;flex-direction:column;gap:11px;">
+          <sc-for list="{{ shiftBreak }}" as="t" hint-placeholder-count="3">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#334155;">{{ t.label }}</span><span style="color:#0B655D;font-weight:600;">{{ t.count }}</span></div>
+              <div style="height:9px;background:#EAF3F1;border-radius:999px;overflow:hidden;"><div style="{{ t.barStyle }}"></div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+
+    <!-- nature breakdown + near-miss / high-alert stats -->
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:16px;">
+      <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;">ลักษณะความคลาดเคลื่อน (Med Error)</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <sc-for list="{{ natureBreak }}" as="t" hint-placeholder-count="8">
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;"><span style="color:#334155;">{{ t.label }}</span><span style="color:#0B655D;font-weight:600;">{{ t.count }}</span></div>
+              <div style="height:9px;background:#EAF3F1;border-radius:999px;overflow:hidden;"><div style="{{ t.barStyle }}"></div></div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div style="background:#EAF6EF;border:1px solid #CBEAD6;border-radius:15px;padding:16px 18px;">
+          <div style="font-size:12.5px;color:#15803D;font-weight:600;">Near miss (A–B: ยังไม่ถึงผู้ป่วย)</div>
+          <div style="font-size:30px;font-weight:700;color:#15803D;line-height:1.2;margin-top:4px;">{{ nearMissPct }}%</div>
+          <div style="font-size:12px;color:#3F8F5F;margin-top:2px;">{{ nearMissN }} จาก {{ nearMissTotal }} เคส Med Error</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div style="background:#FEF3E5;border:1px solid #F5D6A6;border-radius:15px;padding:16px 18px;">
+            <div style="font-size:12.5px;color:#B45309;font-weight:600;">⚠ High-alert</div>
+            <div style="font-size:28px;font-weight:700;color:#B45309;line-height:1.2;margin-top:4px;">{{ haCount }}</div>
+            <div style="font-size:11.5px;color:#C2620E;">เคส</div>
+          </div>
+          <div style="background:#FDEBEB;border:1px solid #F3C5C2;border-radius:15px;padding:16px 18px;">
+            <div style="font-size:12.5px;color:#B42318;font-weight:600;">🔁 LASA</div>
+            <div style="font-size:28px;font-weight:700;color:#B42318;line-height:1.2;margin-top:4px;">{{ laCount }}</div>
+            <div style="font-size:11.5px;color:#C0453C;">เคส</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="no-print" style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+        <div style="font-size:15px;font-weight:700;color:#0B655D;">รายการล่าสุด</div>
+        <input value="{{ search }}" onChange="{{ onSearch }}" placeholder="ค้นหา ยา / HN / ผู้รายงาน / ประเภท…" style="margin-left:auto;width:280px;max-width:100%;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 13px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+      </div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:760px;">
+          <thead>
+            <tr style="text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;">
+              <th style="padding:8px 10px;font-weight:600;">วันที่</th>
+              <th style="padding:8px 10px;font-weight:600;">ประเภท</th>
+              <th style="padding:8px 10px;font-weight:600;">HN</th>
+              <th style="padding:8px 10px;font-weight:600;">หมวด</th>
+              <th style="padding:8px 10px;font-weight:600;">ระดับ</th>
+              <th style="padding:8px 10px;font-weight:600;">ยา</th>
+              <th style="padding:8px 10px;font-weight:600;">ผู้รายงาน</th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ recent }}" as="r" hint-placeholder-count="8">
+              <tr style="border-bottom:1px solid #F1F6F5;">
+                <td style="padding:9px 10px;color:#0F172A;white-space:nowrap;">{{ r.date }}</td>
+                <td style="padding:9px 10px;"><span style="{{ r.badgeStyle }}">{{ r.typeLabel }}</span></td>
+                <td style="padding:9px 10px;color:#475569;">{{ r.hn }}</td>
+                <td style="padding:9px 10px;color:#334155;">{{ r.cat }}</td>
+                <td style="padding:9px 10px;color:#B45309;font-weight:600;">{{ r.severity }}</td>
+                <td style="padding:9px 10px;color:#334155;">{{ r.drug }}</td>
+                <td style="padding:9px 10px;color:#475569;">{{ r.reporter }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <sc-if value="{{ noRecent }}" hint-placeholder-val="{{ false }}"><div style="padding:26px;text-align:center;color:#94A3B8;font-size:14px;">ไม่พบรายการ</div></sc-if>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ RECORDS VIEW ============ -->
+  <sc-if value="{{ isRecords }}" hint-placeholder-val="{{ false }}">
+  <div style="max-width:1180px;margin:0 auto;padding:24px 18px 70px;">
+    <div style="display:flex;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:18px;">
+      <div>
+        <div style="font-size:24px;font-weight:700;color:#0B655D;">รายการทั้งหมด</div>
+        <div style="font-size:13px;color:#64748B;margin-top:2px;">แสดง {{ recCount }} จาก {{ recTotal }} รายการ</div>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;">
+        <button onClick="{{ clearFilters }}" style="border:1.5px solid #DCE7E5;background:#fff;color:#475569;font-size:13px;font-weight:600;padding:9px 15px;border-radius:10px;cursor:pointer;" style-hover="border-color:#F5A623;color:#B45309">ล้างตัวกรอง</button>
+        <button onClick="{{ exportRecords }}" style="border:none;background:#0B655D;color:#fff;font-size:13px;font-weight:600;padding:9px 16px;border-radius:10px;cursor:pointer;">↓ Export CSV</button>
+      </div>
+    </div>
+
+    <!-- filter bar -->
+    <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:16px 18px;margin-bottom:16px;">
+      <div style="display:flex;gap:6px;background:#EAF3F1;padding:4px;border-radius:11px;width:fit-content;margin-bottom:14px;">
+        <button onClick="{{ filtTypeAll }}" style="{{ rfTypeAllStyle }}">ทั้งหมด</button>
+        <button onClick="{{ filtTypeMed }}" style="{{ rfTypeMedStyle }}">Med Error</button>
+        <button onClick="{{ filtTypeDrp }}" style="{{ rfTypeDrpStyle }}">DRP</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ค้นหา</label>
+          <input value="{{ rf.q }}" onChange="{{ onRfQ }}" placeholder="ยา / HN / ข้อความ…" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">จุดที่พบ</label>
+          <select value="{{ rf.location }}" onChange="{{ onRfLocation }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;">
+            <option value="">ทั้งหมด</option>
+            <sc-for list="{{ locationOpts }}" as="o" hint-placeholder-count="2"><option value="{{ o }}">{{ o }}</option></sc-for>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ประเภท Error</label>
+          <select value="{{ rf.error_type }}" onChange="{{ onRfError }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;">
+            <option value="">ทั้งหมด</option>
+            <sc-for list="{{ errorTypeOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ระดับ NCC MERP</label>
+          <select value="{{ rf.severity }}" onChange="{{ onRfSeverity }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;">
+            <option value="">ทั้งหมด</option>
+            <sc-for list="{{ severityOpts }}" as="o" hint-placeholder-count="9"><option value="{{ o }}">{{ o }}</option></sc-for>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ประเภท DRP</label>
+          <select value="{{ rf.drp_type }}" onChange="{{ onRfDrp }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;">
+            <option value="">ทั้งหมด</option>
+            <sc-for list="{{ drpTypeOpts }}" as="o" hint-placeholder-count="7"><option value="{{ o }}">{{ o }}</option></sc-for>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ผลลัพธ์ DRP</label>
+          <select value="{{ rf.outcome }}" onChange="{{ onRfOutcome }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;">
+            <option value="">ทั้งหมด</option>
+            <sc-for list="{{ outcomeOpts }}" as="o" hint-placeholder-count="3"><option value="{{ o.value }}">{{ o.label }}</option></sc-for>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ผู้รายงาน</label>
+          <select value="{{ rf.reporter }}" onChange="{{ onRfReporter }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;">
+            <option value="">ทั้งหมด</option>
+            <sc-for list="{{ reporterOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ตั้งแต่วันที่</label>
+          <input type="date" value="{{ rf.from }}" onChange="{{ onRfFrom }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:8px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#64748B;display:block;margin-bottom:4px;">ถึงวันที่</label>
+          <input type="date" value="{{ rf.to }}" onChange="{{ onRfTo }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:8px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+        </div>
+      </div>
+    </div>
+
+    <!-- table -->
+    <div style="background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:8px 8px 12px;">
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;min-width:860px;">
+          <thead>
+            <tr style="text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;">
+              <th style="padding:10px 12px;font-weight:600;">วันที่</th>
+              <th style="padding:10px 12px;font-weight:600;">ประเภท</th>
+              <th style="padding:10px 12px;font-weight:600;">HN</th>
+              <th style="padding:10px 12px;font-weight:600;">จุดที่พบ</th>
+              <th style="padding:10px 12px;font-weight:600;">หมวด</th>
+              <th style="padding:10px 12px;font-weight:600;">ระดับ</th>
+              <th style="padding:10px 12px;font-weight:600;">ยา</th>
+              <th style="padding:10px 12px;font-weight:600;">ผู้รายงาน</th>
+              <th style="padding:10px 12px;font-weight:600;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ recRows }}" as="r" hint-placeholder-count="10">
+              <tr onClick="{{ r.onClick }}" style="border-bottom:1px solid #F1F6F5;cursor:pointer;transition:background .12s;" style-hover="background:#F5FAF9">
+                <td style="padding:10px 12px;color:#0F172A;white-space:nowrap;">{{ r.date }}<sc-if value="{{ r.edited }}" hint-placeholder-val="{{ false }}"><span style="margin-left:6px;background:#FEF7EC;color:#B45309;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;">✎ แก้ไข</span></sc-if></td>
+                <td style="padding:10px 12px;"><span style="{{ r.badgeStyle }}">{{ r.typeLabel }}</span></td>
+                <td style="padding:10px 12px;color:#475569;">{{ r.hn }}</td>
+                <td style="padding:10px 12px;color:#334155;">{{ r.place }}</td>
+                <td style="padding:10px 12px;color:#334155;">{{ r.cat }}</td>
+                <td style="padding:10px 12px;color:#B45309;font-weight:600;">{{ r.severity }}</td>
+                <td style="padding:10px 12px;color:#334155;">{{ r.drug }}</td>
+                <td style="padding:10px 12px;color:#475569;">{{ r.reporter }}</td>
+                <td style="padding:10px 12px;color:#0F8A80;font-weight:600;white-space:nowrap;">ดู →</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+        <sc-if value="{{ noRec }}" hint-placeholder-val="{{ false }}"><div style="padding:34px;text-align:center;color:#94A3B8;font-size:14px;">ไม่พบรายการตามเงื่อนไข</div></sc-if>
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <!-- ============ DETAIL MODAL ============ -->
+  <sc-if value="{{ hasDetail }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDetail }}" style="position:fixed;inset:0;background:rgba(11,101,93,.35);backdrop-filter:blur(2px);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div onClick="{{ stop }}" style="background:#fff;border-radius:18px;width:540px;max-width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);">
+        <div style="position:sticky;top:0;background:#fff;display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid #EEF3F1;z-index:2;">
+          <span style="{{ detailBadgeStyle }}">{{ detailTitle }}</span>
+          <div style="font-size:15px;font-weight:700;color:#0B655D;">{{ detailHeading }}</div>
+          <button onClick="{{ closeDetail }}" style="margin-left:auto;border:none;background:#EEF3F1;color:#475569;width:32px;height:32px;border-radius:9px;font-size:18px;cursor:pointer;line-height:1;">×</button>
+        </div>
+
+        <!-- VIEW MODE -->
+        <sc-if value="{{ detailView }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:14px 22px 22px;display:flex;flex-direction:column;">
+          <sc-if value="{{ detailEdited }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:9px 12px;margin-bottom:10px;font-size:12.5px;color:#92400E;font-weight:600;">✎ รายการนี้มีการแก้ไข {{ detailEditCount }} ครั้ง · ล่าสุด {{ detailEditedAt }}</div>
+          </sc-if>
+          <sc-for list="{{ detailRows }}" as="d" hint-placeholder-count="9">
+            <div style="display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #F4F8F7;">
+              <div style="flex:none;width:150px;font-size:13px;color:#64748B;font-weight:600;">{{ d.label }}</div>
+              <div style="flex:1;font-size:14px;color:#0F172A;line-height:1.5;">{{ d.value }}</div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ hasDetailImage }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:14px 0 4px;">
+              <div style="font-size:13px;color:#64748B;font-weight:600;margin-bottom:8px;">รูปแนบ</div>
+              {{ detailImgEl }}
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ hasHistory }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:14px;padding-top:14px;border-top:1px dashed #DCE7E5;">
+              <button onClick="{{ toggleHistory }}" style="border:none;background:#F5FAF9;color:#0B655D;font-size:13px;font-weight:600;padding:9px 13px;border-radius:9px;cursor:pointer;width:100%;text-align:left;" style-hover="background:#EAF3F1">🕘 {{ historyLabel }}</button>
+              <sc-if value="{{ showHistory }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+                  <sc-for list="{{ historyList }}" as="h" hint-placeholder-count="1">
+                    <div style="background:#FBFDFC;border:1px solid #E3EFEC;border-radius:12px;padding:12px 14px;">
+                      <div style="font-size:12px;font-weight:700;color:#94A3B8;margin-bottom:8px;">เวอร์ชัน {{ h.no }} · บันทึกเมื่อ {{ h.at }}</div>
+                      <sc-for list="{{ h.rows }}" as="hr" hint-placeholder-count="4">
+                        <div style="display:flex;gap:12px;padding:5px 0;">
+                          <div style="flex:none;width:140px;font-size:12px;color:#94A3B8;">{{ hr.label }}</div>
+                          <div style="flex:1;font-size:12.5px;color:#475569;line-height:1.45;">{{ hr.value }}</div>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <button onClick="{{ startEdit }}" style="margin-top:16px;border:none;background:#0F8A80;color:#fff;font-size:15px;font-weight:700;padding:13px;border-radius:12px;cursor:pointer;" style-hover="background:#0B655D">✎ แก้ไขรายการนี้</button>
+        </div>
+        </sc-if>
+
+        <!-- EDIT MODE -->
+        <sc-if value="{{ detailEdit }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:14px 22px 22px;display:flex;flex-direction:column;gap:13px;">
+          <div style="display:flex;gap:10px;">
+            <div style="flex:1;">
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">วันที่</label>
+              <input type="date" value="{{ ef.occurred_at }}" onChange="{{ onEfDate }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+            </div>
+            <div style="flex:1;">
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">เวลา · {{ efShift }}</label>
+              <input type="time" value="{{ ef.occurred_time }}" onChange="{{ onEfTime }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+            </div>
+          </div>
+          <div>
+            <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">HN ผู้ป่วย</label>
+            <input value="{{ ef.hn }}" onChange="{{ onEfHN }}" type="tel" inputmode="numeric" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+          </div>
+
+          <sc-if value="{{ isEditMed }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">จุดที่พบ</label>
+              <select value="{{ ef.location }}" onChange="{{ onEfLocation }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><sc-for list="{{ locationOpts }}" as="o" hint-placeholder-count="2"><option value="{{ o }}">{{ o }}</option></sc-for></select>
+            </div>
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ประเภท Error</label>
+              <select value="{{ ef.error_type }}" onChange="{{ onEfErrorType }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><option value="">—</option><sc-for list="{{ errorTypeOpts }}" as="o" hint-placeholder-count="4"><option value="{{ o }}">{{ o }}</option></sc-for></select>
+            </div>
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ลักษณะความคลาดเคลื่อน</label>
+              <select value="{{ efNatureVal }}" onChange="{{ onEfNature }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><option value="">—</option><sc-for list="{{ errorNatureOpts }}" as="o" hint-placeholder-count="8"><option value="{{ o }}">{{ o }}</option></sc-for></select>
+            </div>
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ระดับ NCC MERP</label>
+              <select value="{{ ef.severity }}" onChange="{{ onEfSeverity }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><option value="">—</option><sc-for list="{{ severityOpts }}" as="o" hint-placeholder-count="9"><option value="{{ o }}">{{ o }}</option></sc-for></select>
+            </div>
+          </div>
+          </sc-if>
+
+          <sc-if value="{{ isEditDrp }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:13px;">
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ประเภทปัญหา DRP</label>
+              <select value="{{ ef.drp_type }}" onChange="{{ onEfDrp }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><option value="">—</option><sc-for list="{{ drpTypeOpts }}" as="o" hint-placeholder-count="7"><option value="{{ o }}">{{ o }}</option></sc-for></select>
+            </div>
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">สาเหตุ</label>
+              <textarea value="{{ ef.cause }}" onChange="{{ onEfCause }}" rows="2" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:vertical;line-height:1.5;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+            </div>
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">Intervention</label>
+              <select value="{{ ef.intervention }}" onChange="{{ onEfIntervention }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><sc-for list="{{ interventions }}" as="o" hint-placeholder-count="6"><option value="{{ o }}">{{ o }}</option></sc-for></select>
+            </div>
+            <div>
+              <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ผลลัพธ์</label>
+              <select value="{{ ef.outcome }}" onChange="{{ onEfOutcome }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;"><option value="">—</option><sc-for list="{{ outcomeOpts }}" as="o" hint-placeholder-count="3"><option value="{{ o.value }}">{{ o.label }}</option></sc-for></select>
+            </div>
+          </div>
+          </sc-if>
+
+          <div>
+            <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ยาที่เกี่ยวข้อง</label>
+            <input value="{{ ef.drug }}" onChange="{{ onEfDrug }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button onClick="{{ toggleEfHigh }}" style="{{ efHighStyle }}">⚠ High-alert</button>
+            <button onClick="{{ toggleEfLasa }}" style="{{ efLasaStyle }}">🔁 LASA</button>
+          </div>
+          <div>
+            <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">รายละเอียด</label>
+            <textarea value="{{ ef.detail }}" onChange="{{ onEfDetail }}" rows="2" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:vertical;line-height:1.5;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+          </div>
+          <sc-if value="{{ isEditMed }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">การแก้ไข / จัดการ</label>
+            <textarea value="{{ ef.management }}" onChange="{{ onEfManage }}" rows="2" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:vertical;line-height:1.5;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)"></textarea>
+          </div>
+          </sc-if>
+          <div>
+            <label style="font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;">ผู้รายงาน</label>
+            <input value="{{ ef.reporter }}" onChange="{{ onEfReporter }}" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:6px;">
+            <button onClick="{{ cancelEdit }}" style="flex:none;border:1.5px solid #DCE7E5;background:#fff;color:#475569;font-size:14px;font-weight:600;padding:12px 20px;border-radius:11px;cursor:pointer;">ยกเลิก</button>
+            <button onClick="{{ saveEdit }}" style="flex:1;border:none;background:#F5A623;color:#3B2200;font-size:15px;font-weight:700;padding:12px;border-radius:11px;cursor:pointer;" style-hover="background:#E4980E">บันทึกการแก้ไข</button>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- ============ SETTINGS VIEW ============ -->
+  <sc-if value="{{ isSet }}" hint-placeholder-val="{{ false }}">
+  <div style="max-width:620px;margin:0 auto;padding:24px 16px 60px;">
+    <div style="background:#fff;border:1px solid #DEEBE8;border-radius:18px;padding:24px;">
+      <div style="font-size:20px;font-weight:700;color:#0B655D;">เชื่อมต่อ Supabase</div>
+      <p style="font-size:13.5px;color:#64748B;line-height:1.6;margin:8px 0 18px;">ใส่ URL และ anon key ของโปรเจกต์ Supabase เพื่อบันทึกข้อมูลขึ้นฐานข้อมูลจริง หากยังไม่ใส่ ระบบจะเก็บข้อมูลไว้ในเครื่อง (โหมด demo) และยังใช้งานได้เต็มรูปแบบ · โครงตาราง (schema) อยู่ที่ไฟล์ <b>supabase_schema.sql</b> ในโปรเจกต์</p>
+      <div style="margin-bottom:14px;">
+        <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">Project URL</label>
+        <input value="{{ cfgUrl }}" onChange="{{ onCfgUrl }}" placeholder="https://xxxx.supabase.co" style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+      </div>
+      <div style="margin-bottom:18px;">
+        <label style="font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;">anon public key</label>
+        <input value="{{ cfgKey }}" onChange="{{ onCfgKey }}" placeholder="eyJhbGciOi..." style="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:14px;outline:none;" style-focus="border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)">
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button onClick="{{ saveCfg }}" style="border:none;background:#F5A623;color:#3B2200;font-size:15px;font-weight:700;padding:12px 22px;border-radius:11px;cursor:pointer;" style-hover="background:#E4980E">บันทึกการตั้งค่า</button>
+        <span style="font-size:13px;font-weight:600;color:{{ cfgStatusColor }};">{{ cfgStatus }}</span>
+      </div>
+      <div style="margin-top:22px;padding-top:18px;border-top:1px solid #EAF3F1;font-size:13px;color:#64748B;line-height:1.7;">
+        <div style="font-weight:700;color:#0B655D;margin-bottom:4px;">ขั้นตอนย่อ</div>
+        1. สร้างโปรเจกต์ที่ supabase.com<br>
+        2. เปิด SQL Editor แล้วรันไฟล์ <b>supabase_schema.sql</b><br>
+        3. คัดลอก URL + anon key จาก Project Settings → API มาวางที่นี่
+      </div>
+    </div>
+  </div>
+  </sc-if>
+
+  <sc-if value="{{ showToast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#0B655D;color:#fff;padding:12px 22px;border-radius:999px;font-size:14px;font-weight:600;box-shadow:0 12px 30px -8px rgba(11,101,93,.6);animation:toastIn .25s ease;z-index:50;">{{ toast }}</div>
+  </sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;100%&quot;,&quot;height&quot;:900},&quot;orgName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;ห้องยา OPD&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;เนื้อหา&quot;},&quot;defaultReporter&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;เนื้อหา&quot;},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;form&quot;,&quot;dashboard&quot;],&quot;default&quot;:&quot;form&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;การแสดงผล&quot;}}">
+class Component extends DCLogic {
+  ERROR_TYPES = [
+    {key:'Prescribing', desc:'สั่งใช้ยาคลาดเคลื่อน (คำสั่งใช้ยาของแพทย์)'},
+    {key:'Transcribing', desc:'คัดลอก/คีย์คำสั่งใช้ยาคลาดเคลื่อน'},
+    {key:'Dispensing', desc:'จ่ายยาคลาดเคลื่อน (หยิบ/นับ/จ่ายผิด)'},
+    {key:'Administration', desc:'บริหารยาคลาดเคลื่อน (ให้ยาผิดวิธี/เวลา)'},
+  ];
+  SEVERITY = [
+    {code:'A', desc:'A · มีเหตุการณ์ที่อาจก่อให้เกิดความคลาดเคลื่อน (ยังไม่เกิด)'},
+    {code:'B', desc:'B · เกิดความคลาดเคลื่อน แต่ยังไม่ถึงผู้ป่วย'},
+    {code:'C', desc:'C · ถึงผู้ป่วยแต่ไม่เกิดอันตราย'},
+    {code:'D', desc:'D · ถึงผู้ป่วย ต้องเฝ้าระวัง/ติดตามเพื่อยืนยันว่าไม่เกิดอันตราย'},
+    {code:'E', desc:'E · เกิดอันตรายชั่วคราว ต้องได้รับการรักษา'},
+    {code:'F', desc:'F · เกิดอันตรายชั่วคราว ต้องนอน/นอนโรงพยาบาลนานขึ้น'},
+    {code:'G', desc:'G · เกิดอันตรายถาวรแก่ผู้ป่วย'},
+    {code:'H', desc:'H · ต้องได้รับการช่วยชีวิต'},
+    {code:'I', desc:'I · เป็นเหตุให้ผู้ป่วยเสียชีวิต'},
+  ];
+  DRP_TYPES = [
+    {key:'ยาไม่เหมาะสม', desc:'เลือกใช้ยาไม่เหมาะสมกับผู้ป่วย/ข้อบ่งใช้'},
+    {key:'ขนาดยา', desc:'ขนาด/ความถี่ยาไม่เหมาะสม (สูงหรือต่ำเกินไป)'},
+    {key:'Drug interaction', desc:'ปฏิกิริยาระหว่างยาที่มีนัยสำคัญ'},
+    {key:'ยาซ้ำซ้อน', desc:'ได้รับยาซ้ำซ้อน/กลุ่มออกฤทธิ์เดียวกัน'},
+    {key:'ADR/แพ้ยา', desc:'อาการไม่พึงประสงค์ หรือประวัติแพ้ยา'},
+    {key:'Adherence', desc:'ผู้ป่วยใช้ยาไม่ถูกต้อง/ไม่ร่วมมือ'},
+    {key:'อื่น ๆ', desc:'ปัญหาอื่น ๆ ที่เกี่ยวกับการใช้ยา'},
+  ];
+  OUTCOMES = [
+    {key:'Accepted', label:'แพทย์รับข้อเสนอ'},
+    {key:'Rejected', label:'ไม่รับข้อเสนอ'},
+    {key:'Pending', label:'รอผล'},
+  ];
+  LOCATIONS = ['OPD ทั่วไป','OPD NCD'];
+  INTERVENTIONS = ['ปรึกษาแพทย์ผู้สั่งใช้','ปรับขนาด/ความถี่ยา','เปลี่ยนรายการยา','หยุด/ระงับยา','ให้คำแนะนำผู้ป่วย','ส่งต่อ/ปรึกษาเภสัชกร'];
+  ERROR_NATURE = [
+    {key:'ผิดคน', desc:'จ่าย/ให้ยาแก่ผู้ป่วยผิดราย — สลับซอง สลับใบสั่ง หรือเรียกชื่อซ้ำแล้วให้ยาผิดคน'},
+    {key:'ผิดชนิดยา', desc:'ได้รับยาผิดชนิด/ผิดตัวยาจากที่สั่ง (รวมกรณี LASA ชื่อหรือรูปคล้ายกัน)'},
+    {key:'ผิดความแรง', desc:'ยาถูกชนิดแต่ผิดความแรง (strength) เช่น จ่าย 500 mg แทน 250 mg'},
+    {key:'ผิดขนาด/ปริมาณ', desc:'ขนาดยา/ปริมาณต่อครั้งหรือต่อวันไม่ถูกต้อง (สูงหรือต่ำเกินไป)'},
+    {key:'ผิดวิธีใช้/ฉลาก', desc:'วิธีใช้ ความถี่ เส้นทางให้ยา หรือข้อความบนฉลากคลาดเคลื่อน'},
+    {key:'ผิดจำนวน', desc:'จำนวนยาที่จ่ายไม่ตรงกับที่สั่ง (ขาดหรือเกิน)'},
+    {key:'ผิดเวลา', desc:'จ่าย/บริหารยาผิดช่วงเวลาที่กำหนด'},
+    {key:'อื่น ๆ', desc:'ลักษณะอื่นที่ไม่อยู่ในรายการข้างต้น — โปรดระบุเพิ่มเติม'},
+  ];
+  SHIFTS = ['เวรเช้า','เวรบ่าย','เวรดึก'];
+  SEV_TIERS = [
+    {label:'A · ยังไม่เกิด / ไม่ถึงผู้ป่วย', codes:['A'], base:'#EFF2F1', bd:'#DBE4E2', tx:'#5B7280', sel:'#64748B'},
+    {label:'B–D · ถึงผู้ป่วย แต่ไม่เกิดอันตราย', codes:['B','C','D'], base:'#EAF6EF', bd:'#CBEAD6', tx:'#15803D', sel:'#16A34A'},
+    {label:'E–H · เกิดอันตราย', codes:['E','F','G','H'], base:'#FEF3E5', bd:'#F5D6A6', tx:'#B45309', sel:'#EA7A0C'},
+    {label:'I · เสียชีวิต', codes:['I'], base:'#FDEBEB', bd:'#F3C5C2', tx:'#B42318', sel:'#DC2626'},
+  ];
+  THMON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+  emptyFilter(){ return { q:'', type:'all', location:'', error_type:'', error_nature:'', severity:'', drp_type:'', outcome:'', reporter:'', shift:'', high_alert:'', from:'', to:'' }; }
+  state = { view:'form', type:'med', form:{}, records:[], search:'', dashType:'all', cfg:{url:'',key:''}, toast:'', saving:false, rf:{ q:'', type:'all', location:'', error_type:'', error_nature:'', severity:'', drp_type:'', outcome:'', reporter:'', shift:'', high_alert:'', from:'', to:'' }, detail:null, editMode:false, editForm:{}, showHistory:false, kpiAnim:[0,0,0,0], showSevLegend:false, errors:{}, dashRange:{preset:'all',from:'',to:''} };
+  setRF(k,v){ this.setState(s=>({rf:{...s.rf,[k]:v}})); }
+  saveDraft(){ try{ localStorage.setItem('meddrp_draft', JSON.stringify({type:this.state.type, form:this.state.form})); }catch(e){} }
+  clearDraft(){ try{ localStorage.removeItem('meddrp_draft'); }catch(e){} }
+  _draftSoon(){ clearTimeout(this._dt); this._dt=setTimeout(()=>this.saveDraft(),120); }
+  hasDraftContent(f){ return !!(f && (f.error_type||f.drp_type||f.hn||f.detail||f.management||f.cause||(f.error_nature&&f.error_nature.length)||(f.drugs&&f.drugs.some(x=>x&&String(x).trim())))); }
+  setDashPreset(p){ this.setState(s=>({dashRange:{...s.dashRange,preset:p}})); setTimeout(()=>this.animateKpis(),30); }
+  setEf(k,v){ this.setState(s=>({editForm:{...s.editForm,[k]:v}})); }
+  startEdit(){ this.setState(s=>({editMode:true, showHistory:false, editForm:{...s.detail}})); }
+  cancelEdit(){ this.setState({editMode:false}); }
+  saveEdit(){
+    const ef=this.state.editForm, det=this.state.detail;
+    const snap={...det}; delete snap.history; snap.saved_at=new Date().toISOString();
+    const dArr=String(ef.drug||'').split(/\s*,\s*/).map(x=>x.trim()).filter(Boolean);
+    const updated={...ef, drugs:dArr, drug:dArr.join(', '), shift:this.shiftOf(ef.occurred_time), edited:true, edited_at:new Date().toISOString(), edit_count:(det.edit_count||0)+1, history:[...(det.history||[]), snap]};
+    const recs=(this.state.records||[]).map(r=> r.id===updated.id?updated:r);
+    localStorage.setItem('meddrp_records_v3', JSON.stringify(recs));
+    const cfg=this.state.cfg;
+    if(cfg.url&&cfg.key){ try{ const base=cfg.url.replace(/\/+$/,''); fetch(base+'/rest/v1/incidents?id=eq.'+encodeURIComponent(updated.id),{method:'PATCH',headers:{apikey:cfg.key,Authorization:'Bearer '+cfg.key,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(this.toRow(updated))}); }catch(e){} }
+    this.setState({records:recs, detail:updated, editMode:false});
+    this.flash('บันทึกการแก้ไขแล้ว ✓');
+  }
+  toRow(o){ const cols=['id','type','occurred_at','occurred_time','shift','hn','location','error_type','error_nature','error_nature_other','severity','drp_type','drp_type_other','cause','intervention','outcome','drug','high_alert','lasa','attachment','detail','management','reporter','edited','edited_at','edit_count','history','created_at']; const r={}; cols.forEach(c=>{ if(o[c]!==undefined) r[c]=o[c]; }); return r; }
+
+  dashBounds(){
+    const now=new Date(); const dr=this.state.dashRange||{preset:'all'};
+    const pad=n=>String(n).padStart(2,'0'); const isoD=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+    let fromD='',toD='';
+    if(dr.preset==='month'){ fromD=isoD(new Date(now.getFullYear(),now.getMonth(),1)); toD=isoD(new Date(now.getFullYear(),now.getMonth()+1,0)); }
+    else if(dr.preset==='quarter'){ fromD=isoD(new Date(now.getFullYear(),now.getMonth()-2,1)); toD=isoD(now); }
+    else if(dr.preset==='year'){ fromD=isoD(new Date(now.getFullYear(),0,1)); toD=isoD(new Date(now.getFullYear(),11,31)); }
+    else if(dr.preset==='custom'){ fromD=dr.from||''; toD=dr.to||''; }
+    return {fromD,toD};
+  }
+  dashRecs(){
+    const all=this.state.records||[]; const dt=this.state.dashType;
+    let recs=dt==='all'?all.slice():all.filter(r=>r.type===dt);
+    const b=this.dashBounds();
+    if(b.fromD) recs=recs.filter(r=>(r.occurred_at||'')>=b.fromD);
+    if(b.toD) recs=recs.filter(r=>(r.occurred_at||'')<=b.toD);
+    return recs;
+  }
+  computeKpiTargets(){
+    const recs=this.dashRecs();
+    const now=new Date(); const curKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+    return [ recs.length, recs.filter(r=>(r.occurred_at||'').slice(0,7)===curKey).length, recs.filter(r=>r.type==='med').length, recs.filter(r=>r.type==='drp').length ];
+  }
+  animateKpi(i,target){
+    if(!this._iv)this._iv={};
+    if(this._iv[i]) clearInterval(this._iv[i]);
+    const dur=680, start=Date.now();
+    this._iv[i]=setInterval(()=>{
+      const p=Math.min(1,(Date.now()-start)/dur); const ease=1-Math.pow(1-p,3);
+      this.setState(s=>{ const a=(s.kpiAnim||[0,0,0,0]).slice(); a[i]=target*ease; return {kpiAnim:a}; });
+      if(p>=1){ clearInterval(this._iv[i]); this._iv[i]=null; }
+    },24);
+  }
+  animateKpis(){ this.computeKpiTargets().forEach((t,i)=>this.animateKpi(i,t)); }
+
+  today(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate()); }
+  nowTime(){ const d=new Date(); const p=n=>String(n).padStart(2,'0'); return p(d.getHours())+':'+p(d.getMinutes()); }
+  shiftOf(t){ if(!t)return ''; const h=parseInt(String(t).split(':')[0],10); if(isNaN(h))return ''; if(h>=8&&h<16)return 'เวรเช้า'; if(h>=16)return 'เวรบ่าย'; return 'เวรดึก'; }
+
+  emptyForm(type, keep){
+    keep = keep || {};
+    return { occurred_at:this.today(), occurred_time:this.nowTime(), hn:keep.hn||'', location:this.LOCATIONS[0], error_type:'', error_nature:[], error_nature_other:'', severity:'',
+      drp_type:'', drp_type_other:'', cause:'', intervention:this.INTERVENTIONS[0], outcome:'',
+      drugs:[''], drug:'', high_alert:false, lasa:false, attachment:null, detail:'', management:'', reporter:keep.reporter!=null?keep.reporter:(this.props.defaultReporter||'') };
+  }
+  onAttachFile(e){
+    const file=e.target&&e.target.files&&e.target.files[0]; if(!file){return;}
+    const reader=new FileReader();
+    reader.onload=()=>{ const img=new Image(); img.onload=()=>{ const max=1000; let w=img.width,h=img.height; if(w>max||h>max){ const r=Math.min(max/w,max/h); w=Math.round(w*r); h=Math.round(h*r);} const c=document.createElement('canvas'); c.width=w;c.height=h; c.getContext('2d').drawImage(img,0,0,w,h); this.setField('attachment', c.toDataURL('image/jpeg',0.7)); }; img.src=reader.result; };
+    reader.readAsDataURL(file);
+  }
+
+  componentDidMount(){
+    let cfg={url:'',key:''};
+    try{ cfg = JSON.parse(localStorage.getItem('meddrp_cfg')||'null')||cfg; }catch(e){}
+    const sv = this.props.startView==='dashboard' ? 'dashboard' : 'form';
+    let draft=null; try{ draft=JSON.parse(localStorage.getItem('meddrp_draft')||'null'); }catch(e){}
+    let form, type='med', restored=false;
+    if(draft && draft.form && this.hasDraftContent(draft.form)){ form=draft.form; type=draft.type||'med'; restored=true; }
+    else { form=this.emptyForm('med'); }
+    this.setState({ cfg, view:sv, type, form }, ()=>this.loadRecords());
+    if(restored) setTimeout(()=>this.flash('กู้คืนร่างที่ค้างไว้ ✓'),400);
+  }
+
+  async loadRecords(){
+    const cfg=this.state.cfg;
+    if(cfg.url && cfg.key){
+      try{
+        const base=cfg.url.replace(/\/+$/,'');
+        const r=await fetch(base+'/rest/v1/incidents?select=*&order=occurred_at.desc,created_at.desc',{headers:{apikey:cfg.key,Authorization:'Bearer '+cfg.key}});
+        if(r.ok){ const d=await r.json(); this.setState({records:d}); localStorage.setItem('meddrp_records_v3',JSON.stringify(d)); return; }
+      }catch(e){}
+    }
+    let local=null; try{ local=JSON.parse(localStorage.getItem('meddrp_records_v3')||'null'); }catch(e){}
+    if(!local || !local.length){ local=this.seed(); localStorage.setItem('meddrp_records_v3',JSON.stringify(local)); }
+    this.setState({records:local}); if(this.state.view==='dashboard') setTimeout(()=>this.animateKpis(),40);
+  }
+
+  seed(){
+    const drugs=['Amoxicillin 500 mg','Warfarin 2 mg','Metformin 500 mg','Enalapril 5 mg','Paracetamol 500 mg','Simvastatin 20 mg','Amlodipine 5 mg','Omeprazole 20 mg'];
+    const errs=['Prescribing','Transcribing','Dispensing','Administration'];
+    const sev=['A','B','C','C','C','D','D','E','B','C','A','F'];
+    const drps=['ขนาดยา','Drug interaction','ยาซ้ำซ้อน','ADR/แพ้ยา','Adherence','ยาไม่เหมาะสม'];
+    const iv=['ปรึกษาแพทย์ผู้สั่งใช้','ปรับขนาด/ความถี่ยา','เปลี่ยนรายการยา','ให้คำแนะนำผู้ป่วย'];
+    const outc=['Accepted','Accepted','Accepted','Rejected','Pending'];
+    const reps=['ภญ. สมหญิง','ภก. อนุชา','ภญ. ปิยะดา','ภก. ธนวัฒน์'];
+    const locs=['OPD ทั่วไป','OPD NCD'];
+    const medDetail=['จ่ายยาผิดความแรง','หยิบยาผิดชนิด (LASA)','ฉลากยาระบุวิธีใช้ผิด','จำนวนยาไม่ครบตามสั่ง','สั่งซ้ำรายการเดิม','ขนาดยาสูงกว่าที่ควร'];
+    const medFix=['โทรตามผู้ป่วยกลับมาเปลี่ยนยา','แก้ไขก่อนส่งมอบผู้ป่วย','แจ้งแพทย์และปรับคำสั่ง','ทวนสอบซ้ำโดยเภสัชกร'];
+    const drpCause=['ผู้ป่วยมีโรคไต ต้องปรับขนาด','ประวัติแพ้ยาไม่ถูกบันทึก','ได้รับยากลุ่มเดียวกันซ้ำ','ผู้ป่วยลืมกินยา','คู่ยามีปฏิกิริยาสำคัญ'];
+    const drpDet=['เภสัชกรให้คำแนะนำและติดตาม','ปรึกษาแพทย์เพื่อทบทวนการรักษา','บันทึกประวัติแพ้ยาเพิ่มเติม'];
+    const natures=['ผิดคน','ผิดชนิดยา','ผิดความแรง','ผิดขนาด/ปริมาณ','ผิดวิธีใช้/ฉลาก','ผิดจำนวน','ผิดเวลา'];
+    const times=['09:15','10:40','11:05','13:30','14:50','16:20','18:10','20:30','01:15'];
+    const pick=a=>a[Math.floor(Math.random()*a.length)];
+    const out=[]; const now=new Date(); const p=n=>String(n).padStart(2,'0');
+    for(let i=0;i<100;i++){
+      const d=new Date(now.getFullYear(),now.getMonth()-Math.floor(Math.random()*6),1+Math.floor(Math.random()*27));
+      const iso=d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+      const hn=String(1000000+Math.floor(Math.random()*8999999));
+      const tm=pick(times); const ha=Math.random()<0.22; const la=Math.random()<0.12;
+      if(Math.random()<0.6){
+        out.push({id:'seed'+i,type:'med',occurred_at:iso,occurred_time:tm,shift:this.shiftOf(tm),hn,location:pick(locs),error_type:pick(errs),error_nature:pick(natures),severity:pick(sev),drug:pick(drugs),high_alert:ha,lasa:la,detail:pick(medDetail),management:pick(medFix),reporter:pick(reps),created_at:d.toISOString()});
+      } else {
+        out.push({id:'seed'+i,type:'drp',occurred_at:iso,occurred_time:tm,shift:this.shiftOf(tm),hn,drp_type:pick(drps),cause:pick(drpCause),drug:pick(drugs),high_alert:ha,lasa:la,intervention:pick(iv),outcome:pick(outc),detail:pick(drpDet),reporter:pick(reps),created_at:d.toISOString()});
+      }
+    }
+    return out.sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at));
+  }
+
+  setField(k,v){ this.setState(s=>{ const errors={...s.errors}; delete errors[k]; return {form:{...s.form,[k]:v}, errors}; }); this._draftSoon(); }
+  setDrugAt(i,v){ this.setState(s=>{ const d=(s.form.drugs||['']).slice(); d[i]=v; return {form:{...s.form,drugs:d}}; }); this._draftSoon(); }
+  addDrug(){ this.setState(s=>({form:{...s.form,drugs:[...(s.form.drugs||['']),'']}})); this._draftSoon(); }
+  removeDrug(i){ this.setState(s=>{ const d=(s.form.drugs||['']).slice(); d.splice(i,1); if(!d.length)d.push(''); return {form:{...s.form,drugs:d}}; }); this._draftSoon(); }
+  toggleNature(k){ this.setState(s=>{ const cur=Array.isArray(s.form.error_nature)?s.form.error_nature.slice():[]; const i=cur.indexOf(k); if(i>=0)cur.splice(i,1); else cur.push(k); return {form:{...s.form,error_nature:cur}}; }); this._draftSoon(); }
+  natureText(v, other){ const arr=Array.isArray(v)?v.slice():(v?[v]:[]); if(!arr.length)return '—'; return arr.map(x=> (x==='อื่น ๆ'&&other)?('อื่น ๆ ('+other+')'):x ).join(', '); }
+  drugText(r){ if(r.drugs&&r.drugs.length)return r.drugs.filter(Boolean).join(', '); return r.drug||''; }
+  drugArr(r){ if(r.drugs&&r.drugs.length)return r.drugs.filter(Boolean); return r.drug?String(r.drug).split(/\s*,\s*/).filter(Boolean):[]; }
+
+  async save(){
+    const f=this.state.form, type=this.state.type;
+    const errs={};
+    if(type==='med'){ if(!f.error_type)errs.error_type=true; if(!f.severity)errs.severity=true; }
+    else { if(!f.drp_type)errs.drp_type=true; if(!f.outcome)errs.outcome=true; }
+    if(!f.reporter)errs.reporter=true;
+    if(Object.keys(errs).length){ this.setState({errors:errs}); this.flash('กรุณากรอกช่องที่จำเป็น (ไฮไลต์สีแดง)'); return; }
+    this.setState({saving:true, errors:{}});
+    const drugsArr=(f.drugs||[]).map(x=>String(x).trim()).filter(Boolean);
+    const rec={ ...f, type, shift:this.shiftOf(f.occurred_time), drugs:drugsArr, drug:drugsArr.join(', '), id:(self.crypto&&crypto.randomUUID)?crypto.randomUUID():'r'+Date.now(), created_at:new Date().toISOString() };
+    const cfg=this.state.cfg;
+    if(cfg.url&&cfg.key){
+      try{ const base=cfg.url.replace(/\/+$/,''); await fetch(base+'/rest/v1/incidents',{method:'POST',headers:{apikey:cfg.key,Authorization:'Bearer '+cfg.key,'Content-Type':'application/json',Prefer:'return=minimal'},body:JSON.stringify(this.toRow(rec))}); }catch(e){}
+    }
+    const recs=[rec,...this.state.records];
+    localStorage.setItem('meddrp_records_v3',JSON.stringify(recs));
+    this.clearDraft();
+    this.setState({records:recs, saving:false, form:this.emptyForm(type,{hn:'',reporter:f.reporter})});
+    this.flash('บันทึกแล้ว ✓');
+  }
+
+  flash(msg){ this.setState({toast:msg}); clearTimeout(this._t); this._t=setTimeout(()=>this.setState({toast:''}),2200); }
+
+  saveCfg(){ localStorage.setItem('meddrp_cfg',JSON.stringify(this.state.cfg)); this.flash('บันทึกการตั้งค่าแล้ว ✓'); this.loadRecords(); }
+
+  exportCsv(subset){
+    const data=(subset&&subset.length!=null)?subset:this.state.records;
+    const cols=['type','occurred_at','occurred_time','shift','hn','location','error_type','error_nature','error_nature_other','severity','drp_type','drp_type_other','intervention','outcome','drug','high_alert','lasa','detail','management','cause','reporter','edited','edited_at','edit_count','created_at'];
+    const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+    const rows=data.map(r=>cols.map(c=>esc(r[c])).join(','));
+    const csv=cols.join(',')+'\n'+rows.join('\n');
+    const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='med_drp_export.csv'; document.body.appendChild(a); a.click(); a.remove();
+  }
+
+  renderVals(){
+    const S=this.state, f=S.form||{}, type=S.type;
+    const AM='#F5A623', AMT='#3B2200';
+    const chip=(sel)=> sel
+      ? 'padding:9px 14px;border-radius:999px;border:1px solid '+AM+';font-size:14px;font-weight:600;cursor:pointer;background:'+AM+';color:'+AMT+';box-shadow:0 4px 12px -3px rgba(245,166,35,.55);'
+      : 'padding:9px 14px;border-radius:999px;border:1px solid #CFE7E2;font-size:14px;font-weight:600;cursor:pointer;background:#EAF4F1;color:#0B655D;';
+    const sev=(sel)=> sel
+      ? 'height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;border:none;font-weight:700;font-size:14px;cursor:pointer;background:'+AM+';color:'+AMT+';box-shadow:0 3px 9px -2px rgba(245,166,35,.55);'
+      : 'height:38px;display:flex;align-items:center;justify-content:center;border-radius:9px;border:none;font-weight:600;font-size:14px;cursor:pointer;background:#EAF4F1;color:#0B655D;';
+    const seg=(sel)=> sel
+      ? 'flex:1;text-align:center;padding:11px;border-radius:10px;border:none;cursor:pointer;font-size:15px;font-weight:600;background:#fff;color:#0F8A80;box-shadow:0 1px 4px rgba(11,101,93,.18);'
+      : 'flex:1;text-align:center;padding:11px;border-radius:10px;border:none;cursor:pointer;font-size:15px;font-weight:500;background:transparent;color:#5B7C78;';
+    const nav=(sel)=> sel
+      ? 'border:none;cursor:pointer;font-size:14px;font-weight:600;padding:8px 15px;border-radius:9px;background:'+AM+';color:'+AMT+';'
+      : 'border:none;cursor:pointer;font-size:14px;font-weight:500;padding:8px 15px;border-radius:9px;background:rgba(255,255,255,.14);color:#DFF1EE;';
+    const filt=(sel)=> sel
+      ? 'border:none;cursor:pointer;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;background:#0F8A80;color:#fff;'
+      : 'border:none;cursor:pointer;font-size:13px;font-weight:500;padding:8px 14px;border-radius:9px;background:transparent;color:#0B655D;';
+
+    // form derived
+    const errObj=this.ERROR_TYPES.find(t=>t.key===f.error_type);
+    const sevObj=this.SEVERITY.find(s=>s.code===f.severity);
+    const drpObj=this.DRP_TYPES.find(t=>t.key===f.drp_type);
+
+    const vals={
+      orgName: this.props.orgName || 'ห้องยา OPD',
+      isForm:S.view==='form', isDash:S.view==='dashboard', isSet:S.view==='settings', isRecords:S.view==='records',
+      isMed:type==='med', isDrp:type==='drp',
+      f,
+      isToday: f.occurred_at===this.today(),
+      locations:this.LOCATIONS, interventions:this.INTERVENTIONS,
+      medTabStyle:seg(type==='med'), drpTabStyle:seg(type==='drp'),
+      navFormStyle:nav(S.view==='form'), navRecStyle:nav(S.view==='records'), navDashStyle:nav(S.view==='dashboard'), navSetStyle:nav(S.view==='settings'),
+      errorChips:this.ERROR_TYPES.map(t=>({label:t.key, style:chip(f.error_type===t.key), onClick:()=>this.setField('error_type', f.error_type===t.key?'':t.key)})),
+      hasErrorSel:!!errObj, errorDesc:errObj?errObj.desc:'',
+      sevCells:this.SEVERITY.map(s=>({code:s.code, style:sev(f.severity===s.code), onClick:()=>this.setField('severity', f.severity===s.code?'':s.code)})),
+      hasSevSel:!!sevObj, sevDesc:sevObj?sevObj.desc:'',
+      showSevLegend:S.showSevLegend,
+      sevGroups:this.SEV_TIERS.map(gm=>({
+        label:gm.label,
+        boxStyle:'border:1px solid '+gm.bd+';background:'+gm.base+';border-radius:11px;padding:8px 10px;',
+        labelStyle:'font-size:11px;font-weight:700;color:'+gm.tx+';margin-bottom:6px;',
+        cells:gm.codes.map(code=>{ const sl=f.severity===code; return {
+          code,
+          onClick:()=>this.setField('severity', sl?'':code),
+          style: sl
+            ? 'flex:1;min-width:0;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1.5px solid '+gm.sel+';background:'+gm.sel+';color:#fff;font-weight:700;font-size:15px;cursor:pointer;transition:all .12s;box-shadow:0 5px 12px -3px '+gm.sel+'99;'
+            : 'flex:1;min-width:0;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1.5px solid '+gm.bd+';background:#fff;color:'+gm.tx+';font-weight:700;font-size:15px;cursor:pointer;transition:all .12s;'
+        };})
+      })),
+      sevLegend:this.SEVERITY.map(s=>{ const gm=this.SEV_TIERS.find(t=>t.codes.includes(s.code)); return {code:s.code, desc:s.desc, badgeStyle:'flex:none;width:24px;height:24px;border-radius:7px;background:'+gm.sel+';color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;'}; }),
+      toggleSevLegend:()=>this.setState(st=>({showSevLegend:!st.showSevLegend})),
+      sevLegendLabel:S.showSevLegend?'ซ่อนความหมาย A–I':'ดูความหมาย A–I',
+      drpChips:this.DRP_TYPES.map(t=>({label:t.key, style:chip(f.drp_type===t.key), onClick:()=>this.setField('drp_type', f.drp_type===t.key?'':t.key)})),
+      hasDrpSel:!!drpObj, drpDesc:drpObj?drpObj.desc:'',
+      outcomeChips:this.OUTCOMES.map(o=>({label:o.label, style:chip(f.outcome===o.key), onClick:()=>this.setField('outcome', f.outcome===o.key?'':o.key)})),
+      onTime:e=>this.setField('occurred_time',e.target.value),
+      shiftLabel:this.shiftOf(f.occurred_time),
+      natureChips:this.ERROR_NATURE.map(n=>({label:n.key, style:chip(Array.isArray(f.error_nature)&&f.error_nature.includes(n.key)), onClick:()=>this.toggleNature(n.key)})),
+      natureSel:this.ERROR_NATURE.filter(n=>Array.isArray(f.error_nature)&&f.error_nature.includes(n.key)),
+      hasNatureSel:Array.isArray(f.error_nature)&&f.error_nature.length>0,
+      showNatureOther:Array.isArray(f.error_nature)&&f.error_nature.includes('อื่น ๆ'), onNatureOther:e=>this.setField('error_nature_other',e.target.value),
+      showDrpOther:f.drp_type==='อื่น ๆ', onDrpOther:e=>this.setField('drp_type_other',e.target.value),
+      drugRows:(f.drugs||['']).map((val,i)=>({ value:val, onChange:e=>this.setDrugAt(i,e.target.value), onRemove:()=>this.removeDrug(i), canRemove:(f.drugs||['']).length>1 })),
+      addDrug:()=>this.addDrug(),
+      highAlertStyle:chip(!!f.high_alert), lasaStyle:chip(!!f.lasa),
+      toggleHighAlert:()=>this.setField('high_alert', !f.high_alert),
+      toggleLasa:()=>this.setField('lasa', !f.lasa),
+      onAttach:e=>this.onAttachFile(e),
+      hasAttach:!!f.attachment,
+      attachImgEl: f.attachment?React.createElement('img',{src:f.attachment,style:{maxWidth:'100%',maxHeight:'180px',borderRadius:'12px',border:'1px solid #DCE7E5',display:'block'}}):null,
+      clearAttach:()=>this.setField('attachment',null),
+      saveLabel:S.saving?'กำลังบันทึก…':'บันทึกรายงาน',
+      showToast:!!S.toast, toast:S.toast,
+      // nav + tabs
+      goForm:()=>this.setState({view:'form'}), goRecords:()=>this.setState({view:'records'}), goDash:()=>{this.setState({view:'dashboard'}); setTimeout(()=>this.animateKpis(),30);}, goSet:()=>this.setState({view:'settings'}),
+      setMed:()=>{this.setState(st=>({type:'med',form:this.emptyForm('med',st.form),errors:{}})); this._draftSoon();},
+      setDrp:()=>{this.setState(st=>({type:'drp',form:this.emptyForm('drp',st.form),errors:{}})); this._draftSoon();},
+      errErrorType:!!S.errors.error_type, errSeverity:!!S.errors.severity, errDrpType:!!S.errors.drp_type, errOutcome:!!S.errors.outcome, errReporter:!!S.errors.reporter,
+      reporterStyle:'width:100%;box-sizing:border-box;border:1.5px solid '+(S.errors.reporter?'#DC2626':'#DCE7E5')+';border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;'+(S.errors.reporter?'box-shadow:0 0 0 3px rgba(220,38,38,.15);':''),
+      // field handlers
+      onDate:e=>this.setField('occurred_at',e.target.value),
+      onHN:e=>this.setField('hn',e.target.value.replace(/\D/g,'')),
+      onLocation:e=>this.setField('location',e.target.value),
+      onDrug:e=>this.setField('drug',e.target.value),
+      onDetail:e=>this.setField('detail',e.target.value),
+      onManage:e=>this.setField('management',e.target.value),
+      onCause:e=>this.setField('cause',e.target.value),
+      onIntervention:e=>this.setField('intervention',e.target.value),
+      onReporter:e=>this.setField('reporter',e.target.value),
+      save:()=>this.save(),
+      // settings
+      cfgUrl:S.cfg.url, cfgKey:S.cfg.key,
+      onCfgUrl:e=>this.setState(st=>({cfg:{...st.cfg,url:e.target.value}})),
+      onCfgKey:e=>this.setState(st=>({cfg:{...st.cfg,key:e.target.value}})),
+      saveCfg:()=>this.saveCfg(),
+      cfgStatus: (S.cfg.url&&S.cfg.key)?'● เชื่อมต่อ Supabase':'● โหมด demo (เก็บในเครื่อง)',
+      cfgStatusColor: (S.cfg.url&&S.cfg.key)?'#0F8A80':'#B45309',
+      // dashboard filters
+      filtAll:()=>{this.setState({dashType:'all'}); setTimeout(()=>this.animateKpis(),30);}, filtMed:()=>{this.setState({dashType:'med'}); setTimeout(()=>this.animateKpis(),30);}, filtDrp:()=>{this.setState({dashType:'drp'}); setTimeout(()=>this.animateKpis(),30);},
+      filtAllStyle:filt(S.dashType==='all'), filtMedStyle:filt(S.dashType==='med'), filtDrpStyle:filt(S.dashType==='drp'),
+      setRangeAll:()=>this.setDashPreset('all'), setRangeMonth:()=>this.setDashPreset('month'), setRangeQuarter:()=>this.setDashPreset('quarter'), setRangeYear:()=>this.setDashPreset('year'), setRangeCustom:()=>this.setDashPreset('custom'),
+      onRangeFrom:e=>{const v=e.target.value; this.setState(s=>({dashRange:{...s.dashRange,preset:'custom',from:v}})); setTimeout(()=>this.animateKpis(),30);},
+      onRangeTo:e=>{const v=e.target.value; this.setState(s=>({dashRange:{...s.dashRange,preset:'custom',to:v}})); setTimeout(()=>this.animateKpis(),30);},
+      printReport:()=>{ try{ window.print(); }catch(e){} },
+      exportCsv:()=>this.exportCsv(),
+      onSearch:e=>this.setState({search:e.target.value}), search:S.search,
+    };
+
+    // ===== dashboard computations =====
+    const all=S.records||[]; const dt=S.dashType;
+    const now=new Date(); const curKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0');
+    const dr=S.dashRange||{preset:'all'};
+    const recs=this.dashRecs();
+    const total=recs.length;
+    const thisMonth=recs.filter(r=>(r.occurred_at||'').slice(0,7)===curKey).length;
+    const medCount=recs.filter(r=>r.type==='med').length;
+    const drpCount=recs.filter(r=>r.type==='drp').length;
+    const severe=recs.filter(r=>r.type==='med' && ['E','F','G','H','I'].includes(r.severity)).length;
+    const accepted=recs.filter(r=>r.type==='drp'&&r.outcome==='Accepted').length;
+    const acceptRate=drpCount?Math.round(accepted/drpCount*100):0;
+    const anim=S.kpiAnim||[0,0,0,0]; const tg=[total,thisMonth,medCount,drpCount];
+    vals.kpis=[
+      {label:'เคสทั้งหมด', value:Math.round(anim[0]), sub: dt==='all'?'ทุกประเภท':(dt==='med'?'เฉพาะ Med Error':'เฉพาะ DRP'), onHover:()=>this.animateKpi(0,tg[0])},
+      {label:'เดือนนี้', value:Math.round(anim[1]), sub:this.THMON[now.getMonth()]+' '+(now.getFullYear()+543), onHover:()=>this.animateKpi(1,tg[1])},
+      {label:'Med Error', value:Math.round(anim[2]), sub:'ระดับ E ขึ้นไป '+severe+' เคส', onHover:()=>this.animateKpi(2,tg[2])},
+      {label:'DRP', value:Math.round(anim[3]), sub:'แพทย์รับข้อเสนอ '+acceptRate+'%', onHover:()=>this.animateKpi(3,tg[3])},
+    ];
+
+    const months=[];
+    for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(),now.getMonth()-i,1); months.push({key:d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'),label:this.THMON[d.getMonth()]}); }
+    const mc=months.map(m=>recs.filter(r=>(r.occurred_at||'').slice(0,7)===m.key).length);
+    const mmax=Math.max(1,...mc);
+    vals.monthBars=months.map((m,i)=>({label:m.label,count:mc[i],barStyle:'width:62%;border-radius:6px 6px 0 0;background:linear-gradient(#12A093,#0B655D);transition:height .6s cubic-bezier(.22,1,.36,1),filter .15s;cursor:pointer;height:'+Math.max(4,Math.round(mc[i]/mmax*118))+'px;'}));
+
+    const bySev={}; recs.filter(r=>r.type==='med').forEach(r=>{bySev[r.severity]=(bySev[r.severity]||0)+1;});
+    const smax=Math.max(1,...Object.values(bySev),1);
+    vals.sevBars=this.SEVERITY.map(s=>({code:s.code,count:(bySev[s.code]||0),barStyle:'width:100%;border-radius:5px 5px 0 0;background:'+AM+';transition:height .6s cubic-bezier(.22,1,.36,1),filter .15s;cursor:pointer;height:'+Math.max(3,Math.round((bySev[s.code]||0)/smax*96))+'px;'}));
+
+    const byErr={}; recs.filter(r=>r.type==='med').forEach(r=>{byErr[r.error_type]=(byErr[r.error_type]||0)+1;});
+    const emax=Math.max(1,...Object.values(byErr),1);
+    const errorBreak=this.ERROR_TYPES.map(t=>({label:t.key,count:byErr[t.key]||0,barStyle:'height:100%;border-radius:999px;background:#0F8A80;transition:width .6s cubic-bezier(.22,1,.36,1);width:'+Math.round((byErr[t.key]||0)/emax*100)+'%;'}));
+    const byDrp={}; recs.filter(r=>r.type==='drp').forEach(r=>{byDrp[r.drp_type]=(byDrp[r.drp_type]||0)+1;});
+    const dmax=Math.max(1,...Object.values(byDrp),1);
+    const drpBreak=this.DRP_TYPES.map(t=>({label:t.key,count:byDrp[t.key]||0,barStyle:'height:100%;border-radius:999px;background:#0F8A80;transition:width .6s cubic-bezier(.22,1,.36,1);width:'+Math.round((byDrp[t.key]||0)/dmax*100)+'%;'}));
+    vals.typeBreak = dt==='drp'?drpBreak:errorBreak;
+    vals.breakTitle = dt==='drp'?'แยกตามประเภท DRP':'แยกตามประเภท Med Error';
+
+    const byDrug={}; recs.forEach(r=>{ this.drugArr(r).forEach(dn=>{ byDrug[dn]=(byDrug[dn]||0)+1; }); });
+    const drugArr=Object.entries(byDrug).sort((a,b)=>b[1]-a[1]).slice(0,6);
+    const gmax=Math.max(1,...drugArr.map(x=>x[1]),1);
+    vals.topDrugs=drugArr.map(([name,count])=>({name,count,barStyle:'height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0F8A80);transition:width .6s cubic-bezier(.22,1,.36,1);width:'+Math.round(count/gmax*100)+'%;'}));
+
+    const bo={Accepted:0,Rejected:0,Pending:0}; recs.filter(r=>r.type==='drp').forEach(r=>{ if(bo[r.outcome]!=null)bo[r.outcome]++; });
+    vals.interv=[
+      {label:'แพทย์รับข้อเสนอ',count:bo.Accepted,cardStyle:'background:#E7F3F1;color:#0B655D;border-radius:12px;padding:14px 16px;'},
+      {label:'ไม่รับข้อเสนอ',count:bo.Rejected,cardStyle:'background:#FDECEC;color:#B42318;border-radius:12px;padding:14px 16px;'},
+      {label:'รอผล',count:bo.Pending,cardStyle:'background:#FEF3E2;color:#B45309;border-radius:12px;padding:14px 16px;'},
+    ];
+
+    // by location / shift / nature / near-miss / high-alert
+    const byLoc={}; recs.forEach(r=>{ if(r.location){byLoc[r.location]=(byLoc[r.location]||0)+1;} });
+    const locMax=Math.max(1,...Object.values(byLoc),1);
+    vals.locBreak=this.LOCATIONS.map(l=>({label:l,count:byLoc[l]||0,barStyle:'height:100%;border-radius:999px;background:#0F8A80;transition:width .6s cubic-bezier(.22,1,.36,1);width:'+Math.round((byLoc[l]||0)/locMax*100)+'%;'}));
+    const byShift={}; recs.forEach(r=>{ const sh=r.shift||this.shiftOf(r.occurred_time); if(sh)byShift[sh]=(byShift[sh]||0)+1; });
+    const shMax=Math.max(1,...Object.values(byShift),1);
+    vals.shiftBreak=this.SHIFTS.map(s=>({label:s,count:byShift[s]||0,barStyle:'height:100%;border-radius:999px;background:#12A093;transition:width .6s cubic-bezier(.22,1,.36,1);width:'+Math.round((byShift[s]||0)/shMax*100)+'%;'}));
+    const byNat={}; recs.filter(r=>r.type==='med').forEach(r=>{ const arr=Array.isArray(r.error_nature)?r.error_nature:(r.error_nature?[r.error_nature]:[]); arr.forEach(n=>{byNat[n]=(byNat[n]||0)+1;}); });
+    const natMax=Math.max(1,...Object.values(byNat),1);
+    vals.natureBreak=this.ERROR_NATURE.map(n=>n.key).map(k=>({label:k,count:byNat[k]||0,barStyle:'height:100%;border-radius:999px;background:#F5A623;transition:width .6s cubic-bezier(.22,1,.36,1);width:'+Math.round((byNat[k]||0)/natMax*100)+'%;'}));
+    const medRecs2=recs.filter(r=>r.type==='med'); const nmN=medRecs2.filter(r=>['A','B'].includes(r.severity)).length;
+    vals.nearMissPct=medRecs2.length?Math.round(nmN/medRecs2.length*100):0; vals.nearMissN=nmN; vals.nearMissTotal=medRecs2.length;
+    vals.haCount=recs.filter(r=>r.high_alert).length; vals.laCount=recs.filter(r=>r.lasa).length;
+    const rl={all:'ทุกช่วงเวลา',month:this.THMON[now.getMonth()]+' '+(now.getFullYear()+543),quarter:'3 เดือนล่าสุด',year:'ปี '+(now.getFullYear()+543),custom:((dr.from||'…')+' ถึง '+(dr.to||'…'))};
+    vals.rangeLabel=rl[dr.preset]||'ทุกช่วงเวลา';
+    vals.rangeAllStyle=filt(dr.preset==='all'); vals.rangeMonthStyle=filt(dr.preset==='month'); vals.rangeQuarterStyle=filt(dr.preset==='quarter'); vals.rangeYearStyle=filt(dr.preset==='year'); vals.rangeCustomStyle=filt(dr.preset==='custom');
+    vals.isCustomRange=dr.preset==='custom'; vals.rangeFrom=dr.from||''; vals.rangeTo=dr.to||'';
+
+    const q=(S.search||'').toLowerCase();
+    const filtered=recs.filter(r=> !q || JSON.stringify(r).toLowerCase().includes(q));
+    vals.noRecent=filtered.length===0;
+    vals.recent=filtered.slice(0,14).map(r=>({
+      date:r.occurred_at, typeLabel:r.type==='med'?'Med Error':'DRP',
+      badgeStyle: r.type==='med'
+        ? 'background:#E7F3F1;color:#0B655D;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;'
+        : 'background:#FEF3E2;color:#B45309;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;',
+      hn:r.hn||'—', cat: r.type==='med'?(r.error_type||'—'):(r.drp_type||'—'),
+      severity:r.type==='med'?(r.severity||'—'):'—', drug:r.drug||'—', reporter:r.reporter||'—',
+    }));
+
+    // ===== records (รายการทั้งหมด) view =====
+    const rf=S.rf; const rq=(rf.q||'').toLowerCase();
+    const rlist=(S.records||[]).filter(r=>{
+      if(rf.type!=='all' && r.type!==rf.type) return false;
+      if(rf.location && r.location!==rf.location) return false;
+      if(rf.error_type && r.error_type!==rf.error_type) return false;
+      if(rf.error_nature){ const en=r.error_nature; const has=Array.isArray(en)?en.includes(rf.error_nature):(en===rf.error_nature); if(!has) return false; }
+      if(rf.severity && r.severity!==rf.severity) return false;
+      if(rf.drp_type && r.drp_type!==rf.drp_type) return false;
+      if(rf.outcome && r.outcome!==rf.outcome) return false;
+      if(rf.reporter && r.reporter!==rf.reporter) return false;
+      if(rf.shift && r.shift!==rf.shift) return false;
+      if(rf.high_alert==='yes' && !r.high_alert) return false;
+      if(rf.high_alert==='lasa' && !r.lasa) return false;
+      if(rf.from && (r.occurred_at||'')<rf.from) return false;
+      if(rf.to && (r.occurred_at||'')>rf.to) return false;
+      if(rq && !JSON.stringify(r).toLowerCase().includes(rq)) return false;
+      return true;
+    });
+    const outcomeLabel=k=>{ const o=this.OUTCOMES.find(x=>x.key===k); return o?o.label:(k||''); };
+    vals.rf=rf;
+    vals.rfType=rf.type;
+    vals.recCount=rlist.length;
+    vals.recTotal=(S.records||[]).length;
+    vals.reporterOpts=Array.from(new Set((S.records||[]).map(r=>r.reporter).filter(Boolean))).sort();
+    vals.errorTypeOpts=this.ERROR_TYPES.map(t=>t.key);
+    vals.errorNatureOpts=this.ERROR_NATURE.map(n=>n.key);
+    vals.shiftOpts=this.SHIFTS;
+    vals.drpTypeOpts=this.DRP_TYPES.map(t=>t.key);
+    vals.severityOpts=this.SEVERITY.map(s=>s.code);
+    vals.locationOpts=this.LOCATIONS;
+    vals.outcomeOpts=this.OUTCOMES.map(o=>({value:o.key,label:o.label}));
+    vals.filtTypeAll=()=>this.setRF('type','all'); vals.filtTypeMed=()=>this.setRF('type','med'); vals.filtTypeDrp=()=>this.setRF('type','drp');
+    vals.rfTypeAllStyle=filt(rf.type==='all'); vals.rfTypeMedStyle=filt(rf.type==='med'); vals.rfTypeDrpStyle=filt(rf.type==='drp');
+    vals.onRfQ=e=>this.setRF('q',e.target.value);
+    vals.onRfLocation=e=>this.setRF('location',e.target.value);
+    vals.onRfError=e=>this.setRF('error_type',e.target.value);
+    vals.onRfNature=e=>this.setRF('error_nature',e.target.value);
+    vals.onRfSeverity=e=>this.setRF('severity',e.target.value);
+    vals.onRfDrp=e=>this.setRF('drp_type',e.target.value);
+    vals.onRfOutcome=e=>this.setRF('outcome',e.target.value);
+    vals.onRfReporter=e=>this.setRF('reporter',e.target.value);
+    vals.onRfShift=e=>this.setRF('shift',e.target.value);
+    vals.onRfHigh=e=>this.setRF('high_alert',e.target.value);
+    vals.onRfFrom=e=>this.setRF('from',e.target.value);
+    vals.onRfTo=e=>this.setRF('to',e.target.value);
+    vals.clearFilters=()=>this.setState({rf:this.emptyFilter()});
+    vals.exportRecords=()=>this.exportCsv(rlist);
+    vals.recRows=rlist.map(r=>({
+      onClick:()=>this.setState({detail:r}),
+      date:r.occurred_at, typeLabel:r.type==='med'?'Med Error':'DRP',
+      badgeStyle: r.type==='med'
+        ? 'background:#E7F3F1;color:#0B655D;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;'
+        : 'background:#FEF3E2;color:#B45309;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;',
+      hn:r.hn||'—', place:r.type==='med'?(r.location||'—'):'—',
+      cat:r.type==='med'?(r.error_type||'—'):((r.drp_type==='อื่น ๆ'&&r.drp_type_other)?('อื่น ๆ: '+r.drp_type_other):(r.drp_type||'—')),
+      severity:r.type==='med'?(r.severity||'—'):'—',
+      drug:(r.drug||'—')+(r.high_alert?' ⚠':'')+(r.lasa?' 🔁':''), reporter:r.reporter||'—',
+      edited:!!r.edited, editCount:r.edit_count||0,
+    }));
+    vals.noRec=rlist.length===0;
+
+    // ===== detail modal =====
+    const dt2=S.detail;
+    vals.hasDetail=!!dt2;
+    vals.closeDetail=()=>this.setState({detail:null, editMode:false, showHistory:false});
+    vals.stop=(e)=>{ if(e&&e.stopPropagation) e.stopPropagation(); };
+    if(dt2){
+      const isMed2=dt2.type==='med';
+      vals.detailTitle=isMed2?'Med Error':'DRP';
+      vals.detailBadgeStyle=isMed2
+        ? 'background:#E7F3F1;color:#0B655D;font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:999px;'
+        : 'background:#FEF3E2;color:#B45309;font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:999px;';
+      const flags=[dt2.high_alert?'High-alert':null,dt2.lasa?'LASA':null].filter(Boolean).join(', ')||'—';
+      const tval=(dt2.occurred_time||'—')+(dt2.shift?(' · '+dt2.shift):'');
+      const natureDisp=this.natureText(dt2.error_nature, dt2.error_nature_other);
+      const drugDisp=this.drugText(dt2);
+      const drpDisp=(dt2.drp_type==='อื่น ๆ'&&dt2.drp_type_other)?('อื่น ๆ — '+dt2.drp_type_other):dt2.drp_type;
+      const rows= isMed2 ? [
+        ['วันที่เกิดเหตุ', dt2.occurred_at],
+        ['เวลาที่พบ', tval],
+        ['HN ผู้ป่วย', dt2.hn],
+        ['จุดที่พบ', dt2.location],
+        ['ประเภท Error', dt2.error_type],
+        ['ลักษณะความคลาดเคลื่อน', natureDisp],
+        ['ระดับความรุนแรง (NCC MERP)', dt2.severity],
+        ['ชื่อยาที่เกี่ยวข้อง', drugDisp],
+        ['ธงเตือนยา', flags],
+        ['รายละเอียดเหตุการณ์', dt2.detail],
+        ['การแก้ไข / จัดการ', dt2.management],
+        ['ผู้รายงาน', dt2.reporter],
+      ] : [
+        ['วันที่', dt2.occurred_at],
+        ['เวลาที่พบ', tval],
+        ['HN ผู้ป่วย', dt2.hn],
+        ['ประเภทปัญหา DRP', drpDisp],
+        ['ยาที่เกี่ยวข้อง', drugDisp],
+        ['ธงเตือนยา', flags],
+        ['สาเหตุของปัญหา', dt2.cause],
+        ['การ Intervention', dt2.intervention],
+        ['ผลลัพธ์', outcomeLabel(dt2.outcome)],
+        ['รายละเอียดเพิ่มเติม', dt2.detail],
+        ['ผู้รายงาน', dt2.reporter],
+      ];
+      vals.detailRows=rows.map(([label,value])=>({label, value:(value===''||value==null)?'—':value}));
+      vals.detailImage=dt2.attachment||null; vals.hasDetailImage=!!dt2.attachment;
+    } else {
+      vals.detailRows=[]; vals.detailImage=null; vals.hasDetailImage=false;
+      vals.detailTitle=''; vals.detailBadgeStyle='';
+    }
+
+    // ===== detail view/edit/history =====
+    const fmt=(iso)=>{ if(!iso)return ''; const d=new Date(iso); const p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+(d.getFullYear()+543)+' '+p(d.getHours())+':'+p(d.getMinutes()); };
+    vals.detailImgEl=(dt2&&dt2.attachment)?React.createElement('img',{src:dt2.attachment,style:{maxWidth:'100%',borderRadius:'12px',border:'1px solid #DCE7E5',display:'block'}}):null;
+    vals.detailView=!!dt2 && !S.editMode;
+    vals.detailEdit=!!dt2 && S.editMode;
+    vals.detailHeading=S.editMode?'แก้ไขรายการ':'รายละเอียดที่บันทึก';
+    vals.detailEdited=!!(dt2&&dt2.edited);
+    vals.detailEditCount=dt2?(dt2.edit_count||0):0;
+    vals.detailEditedAt=dt2?fmt(dt2.edited_at):'';
+    vals.hasHistory=!!(dt2&&dt2.history&&dt2.history.length);
+    vals.showHistory=S.showHistory;
+    vals.historyLabel=(S.showHistory?'ซ่อน':'ดู')+'ประวัติก่อนแก้ไข ('+((dt2&&dt2.history)?dt2.history.length:0)+' เวอร์ชัน)';
+    vals.toggleHistory=()=>this.setState(st=>({showHistory:!st.showHistory}));
+    vals.startEdit=()=>this.startEdit();
+    vals.cancelEdit=()=>this.cancelEdit();
+    vals.saveEdit=()=>this.saveEdit();
+    vals.historyList=((dt2&&dt2.history)||[]).map((h,idx)=>{
+      const isM=h.type==='med';
+      const rr= isM ? [
+        ['วันที่/เวลา', (h.occurred_at||'—')+' '+(h.occurred_time||'')],
+        ['ประเภท Error', h.error_type], ['ลักษณะ', h.error_nature], ['ระดับ', h.severity],
+        ['ยา', h.drug], ['เหตุการณ์', h.detail], ['การแก้ไข', h.management], ['ผู้รายงาน', h.reporter],
+      ] : [
+        ['วันที่/เวลา', (h.occurred_at||'—')+' '+(h.occurred_time||'')],
+        ['ประเภท DRP', h.drp_type], ['สาเหตุ', h.cause], ['Intervention', h.intervention],
+        ['ผลลัพธ์', (this.OUTCOMES.find(o=>o.key===h.outcome)||{}).label||h.outcome], ['ยา', h.drug], ['รายละเอียด', h.detail], ['ผู้รายงาน', h.reporter],
+      ];
+      return { no:idx+1, at:fmt(h.saved_at), rows:rr.map(([label,value])=>({label, value:(value===''||value==null)?'—':value})) };
+    });
+
+    const ef=S.editForm||{};
+    vals.ef=ef;
+    vals.isEditMed=ef.type==='med'; vals.isEditDrp=ef.type==='drp';
+    vals.efShift=this.shiftOf(ef.occurred_time);
+    vals.efHighStyle=chip(!!ef.high_alert); vals.efLasaStyle=chip(!!ef.lasa);
+    vals.toggleEfHigh=()=>this.setEf('high_alert', !ef.high_alert);
+    vals.toggleEfLasa=()=>this.setEf('lasa', !ef.lasa);
+    vals.onEfDate=e=>this.setEf('occurred_at',e.target.value);
+    vals.onEfTime=e=>this.setEf('occurred_time',e.target.value);
+    vals.onEfHN=e=>this.setEf('hn',e.target.value.replace(/\D/g,''));
+    vals.onEfLocation=e=>this.setEf('location',e.target.value);
+    vals.onEfErrorType=e=>this.setEf('error_type',e.target.value);
+    vals.efNatureVal=(Array.isArray(ef.error_nature)?ef.error_nature[0]:ef.error_nature)||'';
+    vals.onEfNature=e=>this.setEf('error_nature', e.target.value?[e.target.value]:[]);
+    vals.onEfSeverity=e=>this.setEf('severity',e.target.value);
+    vals.onEfDrp=e=>this.setEf('drp_type',e.target.value);
+    vals.onEfCause=e=>this.setEf('cause',e.target.value);
+    vals.onEfIntervention=e=>this.setEf('intervention',e.target.value);
+    vals.onEfOutcome=e=>this.setEf('outcome',e.target.value);
+    vals.onEfDrug=e=>this.setEf('drug',e.target.value);
+    vals.onEfDetail=e=>this.setEf('detail',e.target.value);
+    vals.onEfManage=e=>this.setEf('management',e.target.value);
+    vals.onEfReporter=e=>this.setEf('reporter',e.target.value);
+
+    return vals;
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "me-drp-bysirawit",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-25",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "observability": {
+    "enabled": true
+  }
+  // ตั้งค่า env ตอน deploy จริงผ่าน:  wrangler secret put NEXT_PUBLIC_SUPABASE_URL  ฯลฯ
+  // หรือกำหนดใน Cloudflare dashboard → Workers → Settings → Variables
+}

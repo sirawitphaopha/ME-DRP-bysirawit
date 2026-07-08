@@ -1,0 +1,96 @@
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { Incident, SupabaseCfg } from "./types";
+
+// คอลัมน์ที่ sync กับตาราง public.incidents
+const COLS = [
+  "id",
+  "type",
+  "occurred_at",
+  "occurred_time",
+  "shift",
+  "hn",
+  "reporter",
+  "drug",
+  "drugs",
+  "high_alert",
+  "lasa",
+  "attachment",
+  "detail",
+  "location",
+  "error_type",
+  "error_nature",
+  "error_nature_other",
+  "severity",
+  "management",
+  "drp_type",
+  "drp_type_other",
+  "cause",
+  "intervention",
+  "outcome",
+  "edited",
+  "edited_at",
+  "edit_count",
+  "history",
+  "created_at",
+] as const;
+
+export function toRow(o: Incident): Record<string, unknown> {
+  const r: Record<string, unknown> = {};
+  for (const c of COLS) {
+    const v = (o as unknown as Record<string, unknown>)[c];
+    if (v !== undefined) r[c] = v;
+  }
+  // error_nature ต้องเป็น array เสมอ (คอลัมน์ jsonb)
+  if (r.error_nature !== undefined && !Array.isArray(r.error_nature)) {
+    r.error_nature = r.error_nature ? [r.error_nature] : [];
+  }
+  return r;
+}
+
+// config จาก env (ค่า default ตอน build)
+export function envConfig(): SupabaseCfg {
+  return {
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+    key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+  };
+}
+
+export function isConfigured(cfg: SupabaseCfg): boolean {
+  return !!(cfg.url && cfg.key);
+}
+
+const clientCache = new Map<string, SupabaseClient>();
+function getClient(cfg: SupabaseCfg): SupabaseClient {
+  const k = cfg.url + "|" + cfg.key;
+  let c = clientCache.get(k);
+  if (!c) {
+    c = createClient(cfg.url.replace(/\/+$/, ""), cfg.key, {
+      auth: { persistSession: false },
+    });
+    clientCache.set(k, c);
+  }
+  return c;
+}
+
+export async function fetchIncidents(cfg: SupabaseCfg): Promise<Incident[]> {
+  const c = getClient(cfg);
+  const { data, error } = await c
+    .from("incidents")
+    .select("*")
+    .order("occurred_at", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data || []) as Incident[];
+}
+
+export async function insertIncident(cfg: SupabaseCfg, rec: Incident): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("incidents").insert(toRow(rec));
+  if (error) throw error;
+}
+
+export async function updateIncident(cfg: SupabaseCfg, rec: Incident): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("incidents").update(toRow(rec)).eq("id", rec.id);
+  if (error) throw error;
+}

@@ -1,0 +1,96 @@
+// ค่าคงที่ทั้งหมด — พอร์ตตรงจากดีไซน์ DC (Med Error DRP.dc.html)
+
+export const APP_VERSION = "0.9";
+
+export interface KeyDesc {
+  key: string;
+  desc: string;
+}
+export interface CodeDesc {
+  code: string;
+  desc: string;
+}
+
+export const ERROR_TYPES: KeyDesc[] = [
+  { key: "Prescribing", desc: "สั่งใช้ยาคลาดเคลื่อน (คำสั่งใช้ยาของแพทย์)" },
+  { key: "Transcribing", desc: "คัดลอก/คีย์คำสั่งใช้ยาคลาดเคลื่อน" },
+  { key: "Dispensing", desc: "จ่ายยาคลาดเคลื่อน (หยิบ/นับ/จ่ายผิด)" },
+  { key: "Administration", desc: "บริหารยาคลาดเคลื่อน (ให้ยาผิดวิธี/เวลา)" },
+];
+
+export const SEVERITY: CodeDesc[] = [
+  { code: "A", desc: "A · มีเหตุการณ์ที่อาจก่อให้เกิดความคลาดเคลื่อน (ยังไม่เกิด)" },
+  { code: "B", desc: "B · เกิดความคลาดเคลื่อน แต่ยังไม่ถึงผู้ป่วย" },
+  { code: "C", desc: "C · ถึงผู้ป่วยแต่ไม่เกิดอันตราย" },
+  { code: "D", desc: "D · ถึงผู้ป่วย ต้องเฝ้าระวัง/ติดตามเพื่อยืนยันว่าไม่เกิดอันตราย" },
+  { code: "E", desc: "E · เกิดอันตรายชั่วคราว ต้องได้รับการรักษา" },
+  { code: "F", desc: "F · เกิดอันตรายชั่วคราว ต้องนอน/นอนโรงพยาบาลนานขึ้น" },
+  { code: "G", desc: "G · เกิดอันตรายถาวรแก่ผู้ป่วย" },
+  { code: "H", desc: "H · ต้องได้รับการช่วยชีวิต" },
+  { code: "I", desc: "I · เป็นเหตุให้ผู้ป่วยเสียชีวิต" },
+];
+
+export const DRP_TYPES: KeyDesc[] = [
+  { key: "ยาไม่เหมาะสม", desc: "เลือกใช้ยาไม่เหมาะสมกับผู้ป่วย/ข้อบ่งใช้" },
+  { key: "ขนาดยา", desc: "ขนาด/ความถี่ยาไม่เหมาะสม (สูงหรือต่ำเกินไป)" },
+  { key: "Drug interaction", desc: "ปฏิกิริยาระหว่างยาที่มีนัยสำคัญ" },
+  { key: "ยาซ้ำซ้อน", desc: "ได้รับยาซ้ำซ้อน/กลุ่มออกฤทธิ์เดียวกัน" },
+  { key: "ADR/แพ้ยา", desc: "อาการไม่พึงประสงค์ หรือประวัติแพ้ยา" },
+  { key: "Adherence", desc: "ผู้ป่วยใช้ยาไม่ถูกต้อง/ไม่ร่วมมือ" },
+  { key: "อื่น ๆ", desc: "ปัญหาอื่น ๆ ที่เกี่ยวกับการใช้ยา" },
+];
+
+export interface Outcome {
+  key: string;
+  label: string;
+}
+export const OUTCOMES: Outcome[] = [
+  { key: "Accepted", label: "แพทย์รับข้อเสนอ" },
+  { key: "Rejected", label: "ไม่รับข้อเสนอ" },
+  { key: "Pending", label: "รอผล" },
+];
+
+export const LOCATIONS = ["OPD ทั่วไป", "OPD NCD"];
+
+export const INTERVENTIONS = [
+  "ปรึกษาแพทย์ผู้สั่งใช้",
+  "ปรับขนาด/ความถี่ยา",
+  "เปลี่ยนรายการยา",
+  "หยุด/ระงับยา",
+  "ให้คำแนะนำผู้ป่วย",
+  "ส่งต่อ/ปรึกษาเภสัชกร",
+];
+
+export const ERROR_NATURE: KeyDesc[] = [
+  { key: "ผิดคน", desc: "จ่าย/ให้ยาแก่ผู้ป่วยผิดราย — สลับซอง สลับใบสั่ง หรือเรียกชื่อซ้ำแล้วให้ยาผิดคน" },
+  { key: "ผิดชนิดยา", desc: "ได้รับยาผิดชนิด/ผิดตัวยาจากที่สั่ง (รวมกรณี LASA ชื่อหรือรูปคล้ายกัน)" },
+  { key: "ผิดความแรง", desc: "ยาถูกชนิดแต่ผิดความแรง (strength) เช่น จ่าย 500 mg แทน 250 mg" },
+  { key: "ผิดขนาด/ปริมาณ", desc: "ขนาดยา/ปริมาณต่อครั้งหรือต่อวันไม่ถูกต้อง (สูงหรือต่ำเกินไป)" },
+  { key: "ผิดวิธีใช้/ฉลาก", desc: "วิธีใช้ ความถี่ เส้นทางให้ยา หรือข้อความบนฉลากคลาดเคลื่อน" },
+  { key: "ผิดจำนวน", desc: "จำนวนยาที่จ่ายไม่ตรงกับที่สั่ง (ขาดหรือเกิน)" },
+  { key: "ผิดเวลา", desc: "จ่าย/บริหารยาผิดช่วงเวลาที่กำหนด" },
+  { key: "อื่น ๆ", desc: "ลักษณะอื่นที่ไม่อยู่ในรายการข้างต้น — โปรดระบุเพิ่มเติม" },
+];
+
+export const SHIFTS = ["เวรเช้า", "เวรบ่าย", "เวรดึก"];
+
+export interface SevTier {
+  label: string;
+  codes: string[];
+  base: string;
+  bd: string;
+  tx: string;
+  sel: string;
+}
+export const SEV_TIERS: SevTier[] = [
+  { label: "A · ยังไม่เกิด / ไม่ถึงผู้ป่วย", codes: ["A"], base: "#EFF2F1", bd: "#DBE4E2", tx: "#5B7280", sel: "#64748B" },
+  { label: "B–D · ถึงผู้ป่วย แต่ไม่เกิดอันตราย", codes: ["B", "C", "D"], base: "#EAF6EF", bd: "#CBEAD6", tx: "#15803D", sel: "#16A34A" },
+  { label: "E–H · เกิดอันตราย", codes: ["E", "F", "G", "H"], base: "#FEF3E5", bd: "#F5D6A6", tx: "#B45309", sel: "#EA7A0C" },
+  { label: "I · เสียชีวิต", codes: ["I"], base: "#FDEBEB", bd: "#F3C5C2", tx: "#B42318", sel: "#DC2626" },
+];
+
+export const THMON = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+// สีหลัก
+export const AM = "#F5A623"; // amber accent
+export const AMT = "#3B2200"; // amber text
