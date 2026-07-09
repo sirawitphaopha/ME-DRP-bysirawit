@@ -10,6 +10,7 @@ import {
   INTERVENTIONS,
   LOCATIONS,
   OUTCOMES,
+  REPORTERS,
   SEVERITY,
   SEV_TIERS,
   SHIFTS,
@@ -85,10 +86,26 @@ const nav = (sel: boolean) =>
       AMT +
       ";"
     : "border:none;cursor:pointer;font-size:14px;font-weight:500;padding:8px 15px;border-radius:9px;background:rgba(255,255,255,.14);color:#DFF1EE;";
+// ปุ่มเมนูมือถือ — เต็มความกว้าง (flex:1) แบ่งเท่ากัน
+const navM = (sel: boolean) =>
+  sel
+    ? "flex:1;text-align:center;border:none;cursor:pointer;font-size:14px;font-weight:600;padding:9px 4px;border-radius:9px;background:" +
+      AM +
+      ";color:" +
+      AMT +
+      ";"
+    : "flex:1;text-align:center;border:none;cursor:pointer;font-size:14px;font-weight:500;padding:9px 4px;border-radius:9px;background:rgba(255,255,255,.14);color:#DFF1EE;";
 const filt = (sel: boolean) =>
   sel
     ? "border:none;cursor:pointer;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;background:#0F8A80;color:#fff;"
     : "border:none;cursor:pointer;font-size:13px;font-weight:500;padding:8px 14px;border-radius:9px;background:transparent;color:#0B655D;";
+// ปุ่มเลือกเวร (แทนช่องกรอกเวลา) — active = เทลทึบ
+const shiftBtn = (active: boolean) =>
+  active
+    ? "flex:1;text-align:center;border:1.5px solid #0F8A80;background:#0F8A80;color:#fff;font-size:13.5px;font-weight:600;padding:10px 6px;border-radius:10px;cursor:pointer;white-space:nowrap;"
+    : "flex:1;text-align:center;border:1.5px solid #DCE7E5;background:#fff;color:#475569;font-size:13.5px;font-weight:500;padding:10px 6px;border-radius:10px;cursor:pointer;white-space:nowrap;";
+// เวลาตัวแทนของแต่ละเวร — กดเลือกเวร → เซ็ต occurred_time เป็นค่านี้ (shiftOf จะคืนค่าเวรนั้น) · เก็บตรรกะบันทึกเดิมไว้ทั้งหมด
+const SHIFT_TIME: Record<string, string> = { เวรเช้า: "12:00", เวรบ่าย: "20:00", เวรดึก: "04:00" };
 
 const INPUT_BASE =
   "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 13px;font-size:15px;color:#0F172A;background:#fff;outline:none;";
@@ -100,6 +117,8 @@ const badgeDrp =
 
 export default function MedDrpApp() {
   const [mounted, setMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+  const [clock, setClock] = useState("");
   const [state, setS] = useState<AppState>(() => ({
     view: START_VIEW,
     type: "med",
@@ -304,6 +323,28 @@ export default function MedDrpApp() {
     if (mounted && state.view === "dashboard") animateKpis();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.view, state.dashType, state.dashRange, state.records, mounted]);
+
+  // ตรวจจับจอมือถือ (กว้าง ≤ 640px) — ใช้สลับ layout เฉพาะมือถือ · เดสก์ท็อปไม่แตะ
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const upd = () => setIsMobile(mq.matches);
+    upd();
+    mq.addEventListener("change", upd);
+    return () => mq.removeEventListener("change", upd);
+  }, []);
+
+  // นาฬิกาเดินจริง (โชว์เวลาปัจจุบัน วิ่งทุกวินาที) — เดินเฉพาะตอนอยู่หน้ากรอก
+  useEffect(() => {
+    if (state.view !== "form") return;
+    const two = (n: number) => String(n).padStart(2, "0");
+    const tick = () => {
+      const d = new Date();
+      setClock(two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()));
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [state.view]);
 
   // ---------- form mutations ----------
   const setField = (k: keyof FormState, v: unknown) => {
@@ -764,7 +805,7 @@ export default function MedDrpApp() {
     : "background:#FEF3E2;color:#B45309;font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:999px;";
   if (dt2) {
     const flags = [dt2.high_alert ? "High-alert" : null, dt2.lasa ? "LASA" : null].filter(Boolean).join(", ") || "—";
-    const tval = (dt2.occurred_time || "—") + (dt2.shift ? " · " + dt2.shift : "");
+    const tval = dt2.shift || shiftOf(dt2.occurred_time) || "—";
     const natureDisp = natureText(dt2.error_nature, dt2.error_nature_other);
     const drugDisp = drugText(dt2);
     const drpDisp = dt2.drp_type === "อื่น ๆ" && dt2.drp_type_other ? "อื่น ๆ — " + dt2.drp_type_other : dt2.drp_type;
@@ -838,42 +879,90 @@ export default function MedDrpApp() {
   return (
     <div style={{ minHeight: "100vh" }}>
       {/* TOP NAV */}
-      <div
-        className="no-print"
-        style={css(
-          "position:sticky;top:0;z-index:30;background:linear-gradient(100deg,#0F8A80,#0B655D);color:#Dff1ee;display:flex;align-items:center;gap:14px;padding:12px 20px;box-shadow:0 2px 12px rgba(11,101,93,.3);"
-        )}
-      >
-        <div style={css("display:flex;align-items:center;gap:11px;")}>
-          <div
-            style={css(
-              "width:36px;height:36px;border-radius:11px;background:linear-gradient(155deg,#FCC637,#F59012);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:20px;box-shadow:0 4px 10px -2px rgba(245,144,18,.55);"
-            )}
-          >
-            ℞
+      {isMobile ? (
+        /* ---------- หัวเมนู: มือถือ ---------- */
+        <div
+          className="no-print"
+          style={css(
+            "position:sticky;top:0;z-index:30;background:linear-gradient(100deg,#0F8A80,#0B655D);color:#Dff1ee;padding:9px 13px;box-shadow:0 2px 12px rgba(11,101,93,.3);"
+          )}
+        >
+          <div style={css("display:flex;align-items:center;gap:9px;")}>
+            <div
+              style={css(
+                "width:30px;height:30px;flex:none;border-radius:9px;background:linear-gradient(155deg,#FCC637,#F59012);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:17px;box-shadow:0 4px 10px -2px rgba(245,144,18,.55);"
+              )}
+            >
+              ℞
+            </div>
+            <div style={css("flex:1;min-width:0;")}>
+              <div style={css("font-size:15px;font-weight:700;color:#fff;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")}>
+                Med Error &amp; DRP
+              </div>
+              <div style={css("font-size:10.5px;color:#AEE0DA;line-height:1.1;")}>v{APP_VERSION}</div>
+            </div>
+            <button
+              onClick={() => setState({ view: "settings" })}
+              aria-label="ตั้งค่า"
+              style={css(
+                "flex:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:6px 10px;border-radius:9px;color:#fff;background:" +
+                  (S.view === "settings" ? AM : "rgba(255,255,255,.14)")
+              )}
+            >
+              ⚙
+            </button>
           </div>
-          <div>
-            <div style={css("font-size:15px;font-weight:700;color:#fff;line-height:1.1;")}>รายงานความคลาดเคลื่อน</div>
-            <div style={css("font-size:11.5px;color:#AEE0DA;")}>
-              {orgName} · Med Error &amp; DRP <span style={{ opacity: 0.75 }}>· v{APP_VERSION}</span>
+          <div style={css("display:flex;gap:6px;margin-top:8px;")}>
+            <button onClick={() => setState({ view: "form" })} style={css(navM(S.view === "form"))}>
+              กรอก
+            </button>
+            <button onClick={() => setState({ view: "records" })} style={css(navM(S.view === "records"))}>
+              รายการ
+            </button>
+            <button onClick={() => setState({ view: "dashboard" })} style={css(navM(S.view === "dashboard"))}>
+              สรุป
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* ---------- หัวเมนู: เดสก์ท็อป (เดิม ไม่แตะ) ---------- */
+        <div
+          className="no-print"
+          style={css(
+            "position:sticky;top:0;z-index:30;background:linear-gradient(100deg,#0F8A80,#0B655D);color:#Dff1ee;display:flex;align-items:center;gap:14px;padding:12px 20px;box-shadow:0 2px 12px rgba(11,101,93,.3);"
+          )}
+        >
+          <div style={css("display:flex;align-items:center;gap:11px;")}>
+            <div
+              style={css(
+                "width:36px;height:36px;border-radius:11px;background:linear-gradient(155deg,#FCC637,#F59012);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:20px;box-shadow:0 4px 10px -2px rgba(245,144,18,.55);"
+              )}
+            >
+              ℞
+            </div>
+            <div>
+              <div style={css("font-size:15px;font-weight:700;color:#fff;line-height:1.1;")}>รายงานความคลาดเคลื่อน</div>
+              <div style={css("font-size:11.5px;color:#AEE0DA;")}>
+                {orgName} · Med Error &amp; DRP <span style={{ opacity: 0.75 }}>· v{APP_VERSION}</span>
+              </div>
             </div>
           </div>
+          <div style={css("margin-left:auto;display:flex;gap:6px;")}>
+            <button onClick={() => setState({ view: "form" })} style={css(nav(S.view === "form"))}>
+              กรอกข้อมูล
+            </button>
+            <button onClick={() => setState({ view: "records" })} style={css(nav(S.view === "records"))}>
+              รายการ
+            </button>
+            <button onClick={() => setState({ view: "dashboard" })} style={css(nav(S.view === "dashboard"))}>
+              Dashboard
+            </button>
+            <button onClick={() => setState({ view: "settings" })} style={css(nav(S.view === "settings"))}>
+              ตั้งค่า
+            </button>
+          </div>
         </div>
-        <div style={css("margin-left:auto;display:flex;gap:6px;")}>
-          <button onClick={() => setState({ view: "form" })} style={css(nav(S.view === "form"))}>
-            กรอกข้อมูล
-          </button>
-          <button onClick={() => setState({ view: "records" })} style={css(nav(S.view === "records"))}>
-            รายการ
-          </button>
-          <button onClick={() => setState({ view: "dashboard" })} style={css(nav(S.view === "dashboard"))}>
-            Dashboard
-          </button>
-          <button onClick={() => setState({ view: "settings" })} style={css(nav(S.view === "settings"))}>
-            ตั้งค่า
-          </button>
-        </div>
-      </div>
+      )}
 
       {S.view === "form" && renderForm()}
       {S.view === "dashboard" && renderDashboard()}
@@ -955,15 +1044,20 @@ export default function MedDrpApp() {
               </div>
               <div style={css("flex:1;")}>
                 <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
-                  เวลาที่พบ <span style={css("color:#0F8A80;font-weight:500;")}>· {shiftOf(f.occurred_time)}</span>
+                  เวลาที่พบ (เวร) <span style={css("color:#0F8A80;font-weight:600;")}>· ⏱ {clock}</span>
                 </label>
-                <HInput
-                  type="time"
-                  value={f.occurred_time}
-                  onChange={(e) => setField("occurred_time", e.target.value)}
-                  base={INPUT_BASE}
-                  focus={INPUT_FOCUS}
-                />
+                <div style={css("display:flex;gap:6px;")}>
+                  {SHIFTS.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => setField("occurred_time", SHIFT_TIME[s])}
+                      style={css(shiftBtn(shiftOf(f.occurred_time) === s))}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1035,18 +1129,33 @@ export default function MedDrpApp() {
               <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
                 ผู้รายงาน <span style={css("color:#DC2626;")}>*</span>
               </label>
-              <HInput
+              <HSelect
                 value={f.reporter}
                 onChange={(e) => setField("reporter", e.target.value)}
-                placeholder="เช่น ภญ. สมหญิง"
                 base={
                   "width:100%;box-sizing:border-box;border:1.5px solid " +
                   (S.errors.reporter ? "#DC2626" : "#DCE7E5") +
-                  ";border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;" +
+                  ";border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:" +
+                  (f.reporter ? "#0F172A" : "#94A3B8") +
+                  ";background-color:#fff;outline:none;" +
                   (S.errors.reporter ? "box-shadow:0 0 0 3px rgba(220,38,38,.15);" : "")
                 }
                 focus={INPUT_FOCUS}
-              />
+              >
+                <option value="" disabled>
+                  — เลือกผู้รายงาน —
+                </option>
+                {f.reporter && !REPORTERS.includes(f.reporter) && (
+                  <option value={f.reporter} style={{ color: "#0F172A" }}>
+                    {f.reporter}
+                  </option>
+                )}
+                {REPORTERS.map((r) => (
+                  <option key={r} value={r} style={{ color: "#0F172A" }}>
+                    {r}
+                  </option>
+                ))}
+              </HSelect>
               {S.errors.reporter && (
                 <div style={css("margin-top:5px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาระบุผู้รายงาน</div>
               )}
@@ -1510,7 +1619,7 @@ export default function MedDrpApp() {
         </div>
 
         {/* KPI */}
-        <div style={css("display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:16px;")}>
+        <div style={css("display:grid;grid-template-columns:" + (isMobile ? "repeat(2,1fr)" : "repeat(4,1fr)") + ";gap:" + (isMobile ? "10px" : "14px") + ";margin-bottom:16px;")}>
           {kpis.map((k) => (
             <HDiv
               key={k.label}
@@ -1526,7 +1635,7 @@ export default function MedDrpApp() {
         </div>
 
         {/* month + severity */}
-        <div style={css("display:grid;grid-template-columns:1.3fr 1fr;gap:14px;margin-bottom:16px;")}>
+        <div style={css("display:grid;grid-template-columns:" + (isMobile ? "1fr" : "1.3fr 1fr") + ";gap:14px;margin-bottom:16px;")}>
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
             <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:16px;")}>จำนวนเคสรายเดือน (6 เดือน)</div>
             <div style={css("display:flex;align-items:flex-end;gap:12px;height:150px;padding-top:6px;")}>
@@ -1554,7 +1663,7 @@ export default function MedDrpApp() {
         </div>
 
         {/* type break + top drugs */}
-        <div style={css("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;")}>
+        <div style={css("display:grid;grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";gap:14px;margin-bottom:16px;")}>
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
             <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;")}>{breakTitle}</div>
             {renderBarList(typeBreak.map((t) => ({ label: t.label, count: t.count, barStyle: t.barStyle })))}
@@ -1579,7 +1688,7 @@ export default function MedDrpApp() {
         </div>
 
         {/* loc + shift */}
-        <div style={css("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;")}>
+        <div style={css("display:grid;grid-template-columns:" + (isMobile ? "1fr" : "1fr 1fr") + ";gap:14px;margin-bottom:16px;")}>
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
             <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;")}>แยกตามจุดที่พบ (OPD)</div>
             {renderBarList(locBreak.map((t) => ({ label: t.label, count: t.count, barStyle: t.barStyle })))}
@@ -1591,7 +1700,7 @@ export default function MedDrpApp() {
         </div>
 
         {/* nature + near miss / HA / LASA */}
-        <div style={css("display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:16px;")}>
+        <div style={css("display:grid;grid-template-columns:" + (isMobile ? "1fr" : "1.4fr 1fr") + ";gap:14px;margin-bottom:16px;")}>
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
             <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;")}>ลักษณะความคลาดเคลื่อน (Med Error)</div>
             {renderBarList(natureBreak.map((t) => ({ label: t.label, count: t.count, barStyle: t.barStyle })), 10)}
@@ -1631,37 +1740,66 @@ export default function MedDrpApp() {
               focus={INPUT_FOCUS}
             />
           </div>
-          <div style={css("overflow-x:auto;")}>
-            <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:760px;")}>
-              <thead>
-                <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
-                  {["วันที่", "ประเภท", "HN", "หมวด", "ระดับ", "ยา", "ผู้รายงาน"].map((h) => (
-                    <th key={h} style={css("padding:8px 10px;font-weight:600;")}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map((r, i) => (
-                  <tr key={i} style={css("border-bottom:1px solid #F1F6F5;")}>
-                    <td style={css("padding:9px 10px;color:#0F172A;white-space:nowrap;")}>{r.date}</td>
-                    <td style={css("padding:9px 10px;")}>
-                      <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
-                    </td>
-                    <td style={css("padding:9px 10px;color:#475569;")}>{r.hn}</td>
-                    <td style={css("padding:9px 10px;color:#334155;")}>{r.cat}</td>
-                    <td style={css("padding:9px 10px;color:#B45309;font-weight:600;")}>{r.severity}</td>
-                    <td style={css("padding:9px 10px;color:#334155;")}>{r.drug}</td>
-                    <td style={css("padding:9px 10px;color:#475569;")}>{r.reporter}</td>
+          {isMobile ? (
+            <div style={css("display:flex;flex-direction:column;gap:9px;")}>
+              {recent.map((r, i) => (
+                <div key={i} style={css("border:1px solid #EAF3F1;border-radius:12px;padding:11px 13px;")}>
+                  <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;")}>
+                    <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
+                    <span style={css("font-size:13px;color:#0F172A;font-weight:600;")}>{r.date}</span>
+                    {r.severity ? (
+                      <span style={css("margin-left:auto;font-size:12.5px;color:#B45309;font-weight:600;")}>ระดับ {r.severity}</span>
+                    ) : null}
+                  </div>
+                  <div style={css("font-size:12.5px;color:#475569;line-height:1.55;")}>
+                    <div>
+                      <span style={css("color:#94A3B8;")}>HN</span> {r.hn}
+                      {r.cat ? " · " + r.cat : ""}
+                    </div>
+                    {r.drug ? <div>{r.drug}</div> : null}
+                    <div>
+                      <span style={css("color:#94A3B8;")}>ผู้รายงาน</span> {r.reporter}
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {recentFiltered.length === 0 && (
+                <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการ</div>
+              )}
+            </div>
+          ) : (
+            <div style={css("overflow-x:auto;")}>
+              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:760px;")}>
+                <thead>
+                  <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
+                    {["วันที่", "ประเภท", "HN", "หมวด", "ระดับ", "ยา", "ผู้รายงาน"].map((h) => (
+                      <th key={h} style={css("padding:8px 10px;font-weight:600;")}>
+                        {h}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {recentFiltered.length === 0 && (
-              <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการ</div>
-            )}
-          </div>
+                </thead>
+                <tbody>
+                  {recent.map((r, i) => (
+                    <tr key={i} style={css("border-bottom:1px solid #F1F6F5;")}>
+                      <td style={css("padding:9px 10px;color:#0F172A;white-space:nowrap;")}>{r.date}</td>
+                      <td style={css("padding:9px 10px;")}>
+                        <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
+                      </td>
+                      <td style={css("padding:9px 10px;color:#475569;")}>{r.hn}</td>
+                      <td style={css("padding:9px 10px;color:#334155;")}>{r.cat}</td>
+                      <td style={css("padding:9px 10px;color:#B45309;font-weight:600;")}>{r.severity}</td>
+                      <td style={css("padding:9px 10px;color:#334155;")}>{r.drug}</td>
+                      <td style={css("padding:9px 10px;color:#475569;")}>{r.reporter}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {recentFiltered.length === 0 && (
+                <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการ</div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -1779,54 +1917,103 @@ export default function MedDrpApp() {
           </div>
         </div>
 
-        {/* table */}
-        <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:8px 8px 12px;")}>
-          <div style={css("overflow-x:auto;")}>
-            <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:860px;")}>
-              <thead>
-                <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
-                  {["วันที่", "ประเภท", "HN", "จุดที่พบ", "หมวด", "ระดับ", "ยา", "ผู้รายงาน", ""].map((h, i) => (
-                    <th key={i} style={css("padding:10px 12px;font-weight:600;")}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {recRows.map((r, i) => (
-                  <HTr
-                    key={i}
-                    onClick={() => setState({ detail: r.r })}
-                    base="border-bottom:1px solid #F1F6F5;cursor:pointer;transition:background .12s;"
-                    hover="background:#F5FAF9"
-                  >
-                    <td style={css("padding:10px 12px;color:#0F172A;white-space:nowrap;")}>
-                      {r.date}
-                      {r.edited && (
-                        <span style={css("margin-left:6px;background:#FEF7EC;color:#B45309;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;")}>
-                          ✎ แก้ไข
-                        </span>
-                      )}
-                    </td>
-                    <td style={css("padding:10px 12px;")}>
-                      <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
-                    </td>
-                    <td style={css("padding:10px 12px;color:#475569;")}>{r.hn}</td>
-                    <td style={css("padding:10px 12px;color:#334155;")}>{r.place}</td>
-                    <td style={css("padding:10px 12px;color:#334155;")}>{r.cat}</td>
-                    <td style={css("padding:10px 12px;color:#B45309;font-weight:600;")}>{r.severity}</td>
-                    <td style={css("padding:10px 12px;color:#334155;")}>{r.drug}</td>
-                    <td style={css("padding:10px 12px;color:#475569;")}>{r.reporter}</td>
-                    <td style={css("padding:10px 12px;color:#0F8A80;font-weight:600;white-space:nowrap;")}>ดู →</td>
-                  </HTr>
-                ))}
-              </tbody>
-            </table>
+        {/* รายการ: การ์ด (มือถือ) / ตาราง (เดสก์ท็อป) */}
+        {isMobile ? (
+          <div style={css("display:flex;flex-direction:column;gap:10px;")}>
+            {recRows.map((r, i) => (
+              <div
+                key={i}
+                onClick={() => setState({ detail: r.r })}
+                style={css("background:#fff;border:1px solid #DEEBE8;border-radius:14px;padding:13px 15px;cursor:pointer;box-shadow:0 1px 3px rgba(11,101,93,.06);")}
+              >
+                <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px;")}>
+                  <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
+                  <span style={css("font-size:13px;color:#0F172A;font-weight:600;")}>{r.date}</span>
+                  {r.edited && (
+                    <span style={css("background:#FEF7EC;color:#B45309;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;")}>
+                      ✎ แก้ไข
+                    </span>
+                  )}
+                  <span style={css("margin-left:auto;font-size:13px;color:#0F8A80;font-weight:600;white-space:nowrap;")}>ดู →</span>
+                </div>
+                <div style={css("font-size:13px;color:#334155;line-height:1.6;")}>
+                  <div>
+                    <span style={css("color:#94A3B8;")}>HN</span> {r.hn}
+                    {r.place ? " · " + r.place : ""}
+                  </div>
+                  {r.cat ? (
+                    <div>
+                      <span style={css("color:#94A3B8;")}>หมวด</span> {r.cat}
+                    </div>
+                  ) : null}
+                  {r.severity || r.drug ? (
+                    <div>
+                      {r.severity ? <span style={css("color:#B45309;font-weight:600;")}>ระดับ {r.severity}</span> : null}
+                      {r.severity && r.drug ? " · " : ""}
+                      {r.drug || ""}
+                    </div>
+                  ) : null}
+                  <div>
+                    <span style={css("color:#94A3B8;")}>ผู้รายงาน</span> {r.reporter}
+                  </div>
+                </div>
+              </div>
+            ))}
             {rlist.length === 0 && (
-              <div style={css("padding:34px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการตามเงื่อนไข</div>
+              <div style={css("padding:34px;text-align:center;color:#94A3B8;font-size:14px;background:#fff;border:1px solid #DEEBE8;border-radius:14px;")}>
+                ไม่พบรายการตามเงื่อนไข
+              </div>
             )}
           </div>
-        </div>
+        ) : (
+          <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:8px 8px 12px;")}>
+            <div style={css("overflow-x:auto;")}>
+              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:860px;")}>
+                <thead>
+                  <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
+                    {["วันที่", "ประเภท", "HN", "จุดที่พบ", "หมวด", "ระดับ", "ยา", "ผู้รายงาน", ""].map((h, i) => (
+                      <th key={i} style={css("padding:10px 12px;font-weight:600;")}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {recRows.map((r, i) => (
+                    <HTr
+                      key={i}
+                      onClick={() => setState({ detail: r.r })}
+                      base="border-bottom:1px solid #F1F6F5;cursor:pointer;transition:background .12s;"
+                      hover="background:#F5FAF9"
+                    >
+                      <td style={css("padding:10px 12px;color:#0F172A;white-space:nowrap;")}>
+                        {r.date}
+                        {r.edited && (
+                          <span style={css("margin-left:6px;background:#FEF7EC;color:#B45309;font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;")}>
+                            ✎ แก้ไข
+                          </span>
+                        )}
+                      </td>
+                      <td style={css("padding:10px 12px;")}>
+                        <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
+                      </td>
+                      <td style={css("padding:10px 12px;color:#475569;")}>{r.hn}</td>
+                      <td style={css("padding:10px 12px;color:#334155;")}>{r.place}</td>
+                      <td style={css("padding:10px 12px;color:#334155;")}>{r.cat}</td>
+                      <td style={css("padding:10px 12px;color:#B45309;font-weight:600;")}>{r.severity}</td>
+                      <td style={css("padding:10px 12px;color:#334155;")}>{r.drug}</td>
+                      <td style={css("padding:10px 12px;color:#475569;")}>{r.reporter}</td>
+                      <td style={css("padding:10px 12px;color:#0F8A80;font-weight:600;white-space:nowrap;")}>ดู →</td>
+                    </HTr>
+                  ))}
+                </tbody>
+              </table>
+              {rlist.length === 0 && (
+                <div style={css("padding:34px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการตามเงื่อนไข</div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1960,8 +2147,19 @@ export default function MedDrpApp() {
             <HInput type="date" value={ef.occurred_at || ""} onChange={(e) => setEf("occurred_at", e.target.value)} base={editInput} focus={INPUT_FOCUS} />
           </div>
           <div style={css("flex:1;")}>
-            <label style={editLabel}>เวลา · {shiftOf(ef.occurred_time)}</label>
-            <HInput type="time" value={ef.occurred_time || ""} onChange={(e) => setEf("occurred_time", e.target.value)} base={editInput} focus={INPUT_FOCUS} />
+            <label style={editLabel}>เวร</label>
+            <div style={css("display:flex;gap:6px;")}>
+              {SHIFTS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setEf("occurred_time", SHIFT_TIME[s])}
+                  style={css(shiftBtn(shiftOf(ef.occurred_time) === s))}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
         <div>
@@ -2080,7 +2278,17 @@ export default function MedDrpApp() {
         )}
         <div>
           <label style={editLabel}>ผู้รายงาน</label>
-          <HInput value={ef.reporter || ""} onChange={(e) => setEf("reporter", e.target.value)} base={editInput} focus={INPUT_FOCUS} />
+          <HSelect value={ef.reporter || ""} onChange={(e) => setEf("reporter", e.target.value)} base={editInputSelect} focus={INPUT_FOCUS}>
+            <option value="" disabled>
+              — เลือกผู้รายงาน —
+            </option>
+            {ef.reporter && !REPORTERS.includes(ef.reporter) && <option value={ef.reporter}>{ef.reporter}</option>}
+            {REPORTERS.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </HSelect>
         </div>
 
         <div style={css("display:flex;gap:10px;margin-top:6px;")}>
