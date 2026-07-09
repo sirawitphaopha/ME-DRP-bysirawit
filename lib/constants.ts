@@ -1,6 +1,6 @@
 // ค่าคงที่ทั้งหมด — พอร์ตตรงจากดีไซน์ DC (Med Error DRP.dc.html)
 
-export const APP_VERSION = "0.9.2.0";
+export const APP_VERSION = "0.9.2.1";
 
 export interface KeyDesc {
   key: string;

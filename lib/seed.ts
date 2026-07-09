@@ -1,7 +1,8 @@
 import { Incident } from "./types";
 import { shiftOf } from "./helpers";
+import { REPORTERS } from "./constants";
 
-// สร้างเดโม 100 เคส (ใช้เฉพาะโหมด demo ในเครื่อง เมื่อยังไม่ตั้งค่า Supabase)
+// สร้างเดโม 10 เคส (ใช้เฉพาะโหมด demo ในเครื่อง เมื่อยังไม่ตั้งค่า Supabase)
 export function seed(): Incident[] {
   const drugs = [
     "Amoxicillin 500 mg",
@@ -18,7 +19,7 @@ export function seed(): Incident[] {
   const drps = ["ขนาดยา", "Drug interaction", "ยาซ้ำซ้อน", "ADR/แพ้ยา", "Adherence", "ยาไม่เหมาะสม"];
   const iv = ["ปรึกษาแพทย์ผู้สั่งใช้", "ปรับขนาด/ความถี่ยา", "เปลี่ยนรายการยา", "ให้คำแนะนำผู้ป่วย"];
   const outc = ["Accepted", "Accepted", "Accepted", "Rejected", "Pending"];
-  const reps = ["ภญ. สมหญิง", "ภก. อนุชา", "ภญ. ปิยะดา", "ภก. ธนวัฒน์"];
+  const reps = REPORTERS;
   const locs = ["OPD ทั่วไป", "OPD NCD"];
   const medDetail = [
     "จ่ายยาผิดความแรง",
@@ -48,7 +49,7 @@ export function seed(): Incident[] {
   const out: Incident[] = [];
   const now = new Date();
   const p = (n: number) => String(n).padStart(2, "0");
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 10; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() - Math.floor(Math.random() * 6), 1 + Math.floor(Math.random() * 27));
     const iso = d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate());
     const hn = String(1000000 + Math.floor(Math.random() * 8999999));

@@ -38,7 +38,7 @@ const ORG_NAME = "ห้องยา OPD";
 const DEFAULT_REPORTER = "";
 const START_VIEW: ViewName = "form";
 
-const REC_KEY = "meddrp_records_v3";
+const REC_KEY = "meddrp_records_v4"; // v4: เดโม 10 เคส + ชื่อผู้รายงานจริง (bump เพื่อล้าง cache 100 เคสเก่า)
 const CFG_KEY = "meddrp_cfg";
 const DRAFT_KEY = "meddrp_draft";
 
@@ -62,6 +62,7 @@ interface AppState {
   errors: Record<string, boolean>;
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
+  ddUp: boolean; // เมนู dropdown เด้งขึ้นบน (true) เมื่อช่องอยู่ครึ่งล่างจอ
 }
 
 // ===== style generators (พอร์ตจาก renderVals) =====
@@ -141,6 +142,7 @@ export default function MedDrpApp() {
     errors: {},
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
+    ddUp: false,
   }));
 
   const stateRef = useRef(state);
@@ -269,7 +271,7 @@ export default function MedDrpApp() {
       local = JSON.parse(localStorage.getItem(REC_KEY) || "null");
     } catch {}
     if ((!local || !local.length) && !isConfigured(cfg)) {
-      // โหมด demo ล้วน: ยังไม่ตั้งค่า Supabase → สร้างเดโม 100 เคส
+      // โหมด demo ล้วน: ยังไม่ตั้งค่า Supabase → สร้างเดโม 10 เคส
       local = seed();
       try {
         localStorage.setItem(REC_KEY, JSON.stringify(local));
@@ -348,6 +350,12 @@ export default function MedDrpApp() {
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [state.view]);
+
+  // เปลี่ยนแท็บ/หน้า → เด้งขึ้นบนสุดเสมอ (กันค้างตำแหน่งที่เลื่อนไว้จากหน้าก่อน)
+  useEffect(() => {
+    if (typeof window !== "undefined") window.scrollTo(0, 0);
+  }, [state.view]);
+
 
   // ---------- form mutations ----------
   const setField = (k: keyof FormState, v: unknown) => {
@@ -630,7 +638,7 @@ export default function MedDrpApp() {
     label: t.key,
     count: byErr[t.key] || 0,
     barStyle:
-      "height:100%;border-radius:999px;background:#0F8A80;transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
       Math.round(((byErr[t.key] || 0) / emax) * 100) +
       "%;",
   }));
@@ -643,7 +651,7 @@ export default function MedDrpApp() {
     label: t.key,
     count: byDrp[t.key] || 0,
     barStyle:
-      "height:100%;border-radius:999px;background:#0F8A80;transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
       Math.round(((byDrp[t.key] || 0) / dmax) * 100) +
       "%;",
   }));
@@ -664,7 +672,7 @@ export default function MedDrpApp() {
     name,
     count,
     barStyle:
-      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0F8A80);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
       Math.round((count / gmax) * 100) +
       "%;",
   }));
@@ -688,7 +696,7 @@ export default function MedDrpApp() {
     label: l,
     count: byLoc[l] || 0,
     barStyle:
-      "height:100%;border-radius:999px;background:#0F8A80;transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
       Math.round(((byLoc[l] || 0) / locMax) * 100) +
       "%;",
   }));
@@ -702,7 +710,7 @@ export default function MedDrpApp() {
     label: s,
     count: byShift[s] || 0,
     barStyle:
-      "height:100%;border-radius:999px;background:#12A093;transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
       Math.round(((byShift[s] || 0) / shMax) * 100) +
       "%;",
   }));
@@ -1022,7 +1030,11 @@ export default function MedDrpApp() {
       <div style={css("position:relative;")}>
         <button
           type="button"
-          onClick={() => setState((st) => ({ dd: st.dd === id ? null : id }))}
+          onClick={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            const up = r.bottom > window.innerHeight * 0.5; // ช่องอยู่ครึ่งล่างจอ → เมนูเด้งขึ้นบน
+            setState((st) => (st.dd === id ? { dd: null } : { dd: id, ddUp: up }));
+          }}
           style={css(
             "width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;border:1.5px solid " +
               (err ? "#DC2626" : open ? "#0F8A80" : "#DCE7E5") +
@@ -1036,35 +1048,36 @@ export default function MedDrpApp() {
           <span style={css("color:#0F8A80;flex:none;font-size:12px;transition:transform .15s;transform:rotate(" + (open ? "180deg" : "0") + ");")}>▾</span>
         </button>
         {open && (
-          <>
-            <div onClick={() => setState({ dd: null })} style={css("position:fixed;inset:0;z-index:40;")} />
-            <div
-              style={css(
-                "position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:41;border:1.5px solid #CFE3DF;border-radius:12px;background:#fff;box-shadow:0 12px 30px -12px rgba(11,101,93,.35);overflow:hidden;max-height:260px;overflow-y:auto;"
-              )}
-            >
-              {opts.map((r) => {
-                const sel = r === value;
-                return (
-                  <HDiv
-                    key={r}
-                    onClick={() => {
-                      onChange(r);
-                      setState({ dd: null });
-                    }}
-                    base={
-                      "padding:12px 14px;font-size:15px;cursor:pointer;border-bottom:1px solid #F1F6F5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" +
-                      (sel ? "background:#EAF6F3;color:#0B655D;font-weight:700;" : "color:#0F172A;")
-                    }
-                    hover="background:#F5FAF9"
-                  >
-                    {sel ? "✓ " : ""}
-                    {r}
-                  </HDiv>
-                );
-              })}
-            </div>
-          </>
+          // absolute + เด้งขึ้น/ลง ตามพื้นที่ (S.ddUp) — ช่องล่างจอเด้งขึ้น กันโดนตัดขอบล่าง
+          <div
+            id="dd-open-panel"
+            style={css(
+              "position:absolute;left:0;right:0;z-index:30;" +
+                (S.ddUp ? "bottom:calc(100% + 6px);" : "top:calc(100% + 6px);") +
+                "border:1.5px solid #CFE3DF;border-radius:12px;background:#fff;box-shadow:0 10px 26px -12px rgba(11,101,93,.4);overflow:hidden;max-height:300px;overflow-y:auto;-webkit-overflow-scrolling:touch;"
+            )}
+          >
+            {opts.map((r) => {
+              const sel = r === value;
+              return (
+                <HDiv
+                  key={r}
+                  onClick={() => {
+                    onChange(r);
+                    setState({ dd: null });
+                  }}
+                  base={
+                    "display:flex;align-items:center;gap:8px;padding:13px 14px;font-size:15px;cursor:pointer;border-bottom:1px solid #F1F6F5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" +
+                    (sel ? "background:#EAF6F3;color:#0B655D;font-weight:700;" : "color:#0F172A;")
+                  }
+                  hover="background:#F5FAF9"
+                >
+                  <span style={css("flex:none;width:16px;color:#0F8A80;")}>{sel ? "✓" : ""}</span>
+                  <span style={css("overflow:hidden;text-overflow:ellipsis;")}>{r}</span>
+                </HDiv>
+              );
+            })}
+          </div>
         )}
       </div>
     );
@@ -1916,19 +1929,26 @@ export default function MedDrpApp() {
   }
 
   function renderBarList(items: { label: string; count: number; barStyle: string }[], gap = 11) {
+    const total = items.reduce((a, b) => a + b.count, 0);
     return (
       <div style={css("display:flex;flex-direction:column;gap:" + gap + "px;")}>
-        {items.map((t, i) => (
-          <div key={i}>
-            <div style={css("display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px;")}>
-              <span style={css("color:#334155;")}>{t.label}</span>
-              <span style={css("color:#0B655D;font-weight:600;")}>{t.count}</span>
+        {items.map((t, i) => {
+          const pct = total ? Math.round((t.count / total) * 100) : 0;
+          return (
+            <div key={i}>
+              <div style={css("display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:5px;")}>
+                <span style={css("color:#334155;")}>{t.label}</span>
+                <span>
+                  <span style={css("color:#0B655D;font-weight:700;")}>{t.count}</span>
+                  <span style={css("color:#94A3B8;font-weight:500;font-size:12px;margin-left:6px;")}>{pct}%</span>
+                </span>
+              </div>
+              <div style={css("height:10px;background:#EAF3F1;border-radius:999px;overflow:hidden;")}>
+                <div style={css(t.barStyle)} />
+              </div>
             </div>
-            <div style={css("height:9px;background:#EAF3F1;border-radius:999px;overflow:hidden;")}>
-              <div style={css(t.barStyle)} />
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     );
   }

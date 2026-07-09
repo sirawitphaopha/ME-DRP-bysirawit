@@ -71,9 +71,11 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 - ตารางเดียว `incidents` แยก Med/DRP ด้วย `type: 'med' | 'drp'`
 - `error_nature` และ `drugs` เป็น **array** (jsonb) — โค้ดรองรับข้อมูลเก่าที่เป็น string ด้วย (ดู `helpers.natureText/drugArr`)
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
-- คีย์ localStorage: `meddrp_records_v3`, `meddrp_cfg`, `meddrp_draft`
-- **ผู้รายงาน (v0.9.2.0):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS แล้ว — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · ค่าเดิมนอกลิสต์ยังแสดง (guard) · state `dd` = id dropdown ที่เปิดอยู่ + backdrop ปิดเมื่อแตะนอก
-- **Heatmap เวร × วันในสัปดาห์ (v0.9.2.0):** ในหน้า Dashboard — `hmMatrix[3][7]` นับจาก `occurred_at` (วันในสัปดาห์ จ=0) × `shift` · สีเข้ม = เกิดบ่อย (`hmColor`)
+- คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
+- **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)
+- **Heatmap เวร × วันในสัปดาห์ (v0.9.2.0):** ในหน้า Dashboard — `hmMatrix[3][7]` นับจาก `occurred_at` (วันในสัปดาห์ จ=0) × `shift` · สีเข้ม = เกิดบ่อย (`hmColor`) · **รวมทุกสัปดาห์ในช่วงที่เลือก**
+- **แท่งกราฟแนวนอน (v0.9.2.1):** `renderBarList` ใช้ gradient teal (`linear-gradient(90deg,#12A093,#0B655D)`) + โชว์ % ข้างจำนวน · แท่ง "ลักษณะ" คง amber เป็น accent
+- **สลับแท็บ (v0.9.2.1):** `useEffect` on `state.view` → `window.scrollTo(0,0)` เด้งขึ้นบนสุดทุกครั้งที่เปลี่ยนหน้า
 - **เส้นขอบ input/select (v0.9.2.0):** `INPUT_FOCUS` ใช้ `border` เต็ม (ไม่ใช่ `border-color`) — กัน React ผสม shorthand/longhand แล้วเส้นขอบหายตอน blur บน iOS
 - **วันที่มือถือ (v0.9.2.0):** เมื่อ `isMobile` date input `text-align:left` + ป้าย "วันนี้" ชิดมุม กันค่าลอยตกขอบตอนช่องเต็มความกว้าง (เดสก์ท็อปไม่แตะ)
 - **เวลาที่พบ/เวร (v0.9.1):** ไม่มีช่องนาฬิกาแล้ว → ปุ่มเลือกเวร 3 ปุ่ม (helper `shiftBtn`) · auto ตามเวลาปัจจุบันตอนเปิดฟอร์ม (`shiftOf`: 08–16 เช้า / 16–24 บ่าย / 00–08 ดึก) · กดเลือก = set `occurred_time` เป็น**เวลาตัวแทน** (`SHIFT_TIME` เช้า 12:00/บ่าย 20:00/ดึก 04:00) → บันทึก `shift = shiftOf(occurred_time)` เดิม (dashboard/CSV ไม่กระทบ) · หน้ารายละเอียดโชว์แค่ `shift`
@@ -81,7 +83,7 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 ## การเชื่อม Supabase
 
 - config มาจาก (ลำดับความสำคัญ) หน้า **ตั้งค่า** (localStorage `meddrp_cfg`) → env `NEXT_PUBLIC_SUPABASE_*`
-- ถ้าไม่มี config → **โหมด demo** (seed 100 เคสในเครื่อง)
+- ถ้าไม่มี config → **โหมด demo** (seed **10 เคส** ในเครื่อง · v0.9.2.1 · ใช้ชื่อจาก `REPORTERS`)
 - `loadRecords`: โชว์ข้อมูล local ก่อนทันที แล้วค่อย fetch Supabase มาทับเบื้องหลัง (ห้ามทำให้ network บล็อก UI)
 - ตาราง/RLS อยู่ที่ `supabase/schema.sql` · ใช้ Supabase MCP tools กับ project id `ryewggkhunpuipgkgbfv`
 
