@@ -61,6 +61,7 @@ interface AppState {
   showSevLegend: boolean;
   errors: Record<string, boolean>;
   dashRange: DashRange;
+  dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
 }
 
 // ===== style generators (พอร์ตจาก renderVals) =====
@@ -109,7 +110,8 @@ const SHIFT_TIME: Record<string, string> = { เวรเช้า: "12:00", เ
 
 const INPUT_BASE =
   "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 13px;font-size:15px;color:#0F172A;background:#fff;outline:none;";
-const INPUT_FOCUS = "border-color:#F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)";
+// ใช้ border เต็ม (ไม่ใช่ border-color) กัน React ผสม shorthand/longhand แล้วเส้นขอบหายตอน blur บน iOS
+const INPUT_FOCUS = "border:1.5px solid #F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)";
 const badgeMed =
   "background:#E7F3F1;color:#0B655D;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;";
 const badgeDrp =
@@ -138,6 +140,7 @@ export default function MedDrpApp() {
     showSevLegend: false,
     errors: {},
     dashRange: { preset: "all", from: "", to: "" },
+    dd: null,
   }));
 
   const stateRef = useRef(state);
@@ -703,6 +706,35 @@ export default function MedDrpApp() {
       Math.round(((byShift[s] || 0) / shMax) * 100) +
       "%;",
   }));
+  // heatmap เวร × วันในสัปดาห์ (จ=0 … อา=6)
+  const HM_DAYS = ["จ", "อ", "พ", "พฤ", "ศ", "ส", "อา"];
+  const hmMatrix: number[][] = [
+    [0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0],
+  ];
+  const hmShiftIdx: Record<string, number> = { เวรเช้า: 0, เวรบ่าย: 1, เวรดึก: 2 };
+  recs.forEach((r) => {
+    if (!r.occurred_at) return;
+    const d = new Date(r.occurred_at);
+    if (isNaN(d.getTime())) return;
+    const dow = (d.getDay() + 6) % 7; // getDay: อา=0 → แปลงให้ จ=0
+    const si = hmShiftIdx[r.shift || shiftOf(r.occurred_time)];
+    if (si === undefined) return;
+    hmMatrix[si][dow] += 1;
+  });
+  const hmMax = Math.max(1, ...hmMatrix.flat());
+  const hmTotal = hmMatrix.flat().reduce((a, b) => a + b, 0);
+  const hmColor = (v: number) => {
+    if (v === 0) return "#F3F8F7";
+    const t = v / hmMax;
+    if (t < 0.2) return "#EAF6F3";
+    if (t < 0.4) return "#BFE3DA";
+    if (t < 0.6) return "#7FC7B8";
+    if (t < 0.8) return "#3DA593";
+    return "#0B655D";
+  };
+
   const byNat: Record<string, number> = {};
   recs.filter((r) => r.type === "med").forEach((r) => {
     const arr = Array.isArray(r.error_nature) ? r.error_nature : r.error_nature ? [r.error_nature] : [];
@@ -982,6 +1014,62 @@ export default function MedDrpApp() {
     </div>
   );
 
+  // dropdown ผู้รายงาน (ทำเอง ไม่ใช้ <select> ของ OS — กัน iOS ตัดชื่อ 2 บรรทัด)
+  function renderReporterDD(id: string, value: string, onChange: (v: string) => void, err: boolean) {
+    const open = S.dd === id;
+    const opts = value && !REPORTERS.includes(value) ? [value, ...REPORTERS] : REPORTERS;
+    return (
+      <div style={css("position:relative;")}>
+        <button
+          type="button"
+          onClick={() => setState((st) => ({ dd: st.dd === id ? null : id }))}
+          style={css(
+            "width:100%;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;text-align:left;border:1.5px solid " +
+              (err ? "#DC2626" : open ? "#0F8A80" : "#DCE7E5") +
+              ";border-radius:11px;padding:12px 14px;font-size:15px;background:#fff;cursor:pointer;color:" +
+              (value ? "#0F172A" : "#94A3B8") +
+              ";" +
+              (err ? "box-shadow:0 0 0 3px rgba(220,38,38,.15);" : "")
+          )}
+        >
+          <span style={css("white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")}>{value || "— เลือกผู้รายงาน —"}</span>
+          <span style={css("color:#0F8A80;flex:none;font-size:12px;transition:transform .15s;transform:rotate(" + (open ? "180deg" : "0") + ");")}>▾</span>
+        </button>
+        {open && (
+          <>
+            <div onClick={() => setState({ dd: null })} style={css("position:fixed;inset:0;z-index:40;")} />
+            <div
+              style={css(
+                "position:absolute;left:0;right:0;top:calc(100% + 6px);z-index:41;border:1.5px solid #CFE3DF;border-radius:12px;background:#fff;box-shadow:0 12px 30px -12px rgba(11,101,93,.35);overflow:hidden;max-height:260px;overflow-y:auto;"
+              )}
+            >
+              {opts.map((r) => {
+                const sel = r === value;
+                return (
+                  <HDiv
+                    key={r}
+                    onClick={() => {
+                      onChange(r);
+                      setState({ dd: null });
+                    }}
+                    base={
+                      "padding:12px 14px;font-size:15px;cursor:pointer;border-bottom:1px solid #F1F6F5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" +
+                      (sel ? "background:#EAF6F3;color:#0B655D;font-weight:700;" : "color:#0F172A;")
+                    }
+                    hover="background:#F5FAF9"
+                  >
+                    {sel ? "✓ " : ""}
+                    {r}
+                  </HDiv>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ---------------- FORM ----------------
   function renderForm() {
     const isMed = type === "med";
@@ -1028,13 +1116,15 @@ export default function MedDrpApp() {
                     type="date"
                     value={f.occurred_at}
                     onChange={(e) => setField("occurred_at", e.target.value)}
-                    base={INPUT_BASE}
+                    base={INPUT_BASE + (isMobile ? "text-align:left;" : "")}
                     focus={INPUT_FOCUS}
                   />
                   {f.occurred_at === today() && (
                     <span
                       style={css(
-                        "position:absolute;right:40px;top:50%;transform:translateY(-50%);background:#FEF3E2;color:#B45309;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;pointer-events:none;"
+                        "position:absolute;right:" +
+                          (isMobile ? "14px" : "40px") +
+                          ";top:50%;transform:translateY(-50%);background:#FEF3E2;color:#B45309;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;pointer-events:none;"
                       )}
                     >
                       วันนี้
@@ -1129,33 +1219,7 @@ export default function MedDrpApp() {
               <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
                 ผู้รายงาน <span style={css("color:#DC2626;")}>*</span>
               </label>
-              <HSelect
-                value={f.reporter}
-                onChange={(e) => setField("reporter", e.target.value)}
-                base={
-                  "width:100%;box-sizing:border-box;border:1.5px solid " +
-                  (S.errors.reporter ? "#DC2626" : "#DCE7E5") +
-                  ";border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:" +
-                  (f.reporter ? "#0F172A" : "#94A3B8") +
-                  ";background-color:#fff;outline:none;" +
-                  (S.errors.reporter ? "box-shadow:0 0 0 3px rgba(220,38,38,.15);" : "")
-                }
-                focus={INPUT_FOCUS}
-              >
-                <option value="" disabled>
-                  — เลือกผู้รายงาน —
-                </option>
-                {f.reporter && !REPORTERS.includes(f.reporter) && (
-                  <option value={f.reporter} style={{ color: "#0F172A" }}>
-                    {f.reporter}
-                  </option>
-                )}
-                {REPORTERS.map((r) => (
-                  <option key={r} value={r} style={{ color: "#0F172A" }}>
-                    {r}
-                  </option>
-                ))}
-              </HSelect>
+              {renderReporterDD("reporter", f.reporter, (v) => setField("reporter", v), !!S.errors.reporter)}
               {S.errors.reporter && (
                 <div style={css("margin-top:5px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาระบุผู้รายงาน</div>
               )}
@@ -1604,7 +1668,7 @@ export default function MedDrpApp() {
                 value={dr.from}
                 onChange={(e) => setState((s) => ({ dashRange: { ...s.dashRange, preset: "custom", from: e.target.value } }))}
                 base="border:1.5px solid #DCE7E5;border-radius:9px;padding:7px 11px;font-size:13px;outline:none;"
-                focus="border-color:#F5A623"
+                focus="border:1.5px solid #F5A623"
               />
               <span style={css("color:#94A3B8;font-size:13px;")}>ถึง</span>
               <HInput
@@ -1612,7 +1676,7 @@ export default function MedDrpApp() {
                 value={dr.to}
                 onChange={(e) => setState((s) => ({ dashRange: { ...s.dashRange, preset: "custom", to: e.target.value } }))}
                 base="border:1.5px solid #DCE7E5;border-radius:9px;padding:7px 11px;font-size:13px;outline:none;"
-                focus="border-color:#F5A623"
+                focus="border:1.5px solid #F5A623"
               />
             </div>
           )}
@@ -1725,6 +1789,52 @@ export default function MedDrpApp() {
                 <div style={css("font-size:11.5px;color:#C0453C;")}>เคส</div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* heatmap เวร × วันในสัปดาห์ */}
+        <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;margin-bottom:16px;")}>
+          <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>ช่วงเวลาที่เกิดเหตุบ่อย</div>
+          <div style={css("font-size:12.5px;color:#64748B;margin-top:2px;margin-bottom:14px;")}>
+            เวร × วันในสัปดาห์ · สีเข้ม = เกิดบ่อย{hmTotal === 0 ? " · ยังไม่มีข้อมูลในช่วงนี้" : ""}
+          </div>
+          <div style={css("display:grid;grid-template-columns:46px repeat(7,1fr);gap:5px;")}>
+            <div />
+            {HM_DAYS.map((d) => (
+              <div key={"h" + d} style={css("font-size:11px;color:#64748B;text-align:center;font-weight:600;padding-bottom:2px;")}>
+                {d}
+              </div>
+            ))}
+            {SHIFTS.map((s, ri) => (
+              <React.Fragment key={s}>
+                <div style={css("font-size:12px;color:#475569;font-weight:600;display:flex;align-items:center;")}>{s.replace("เวร", "")}</div>
+                {HM_DAYS.map((d, ci) => {
+                  const v = hmMatrix[ri][ci];
+                  return (
+                    <div
+                      key={s + d}
+                      title={s + " · " + d + " · " + v + " เคส"}
+                      style={css(
+                        "aspect-ratio:1/1;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:700;background:" +
+                          hmColor(v) +
+                          ";color:" +
+                          (v / hmMax > 0.6 ? "#EAF6F3" : "#0B655D") +
+                          ";"
+                      )}
+                    >
+                      {v || ""}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+          <div style={css("display:flex;align-items:center;gap:6px;margin-top:12px;font-size:11px;color:#64748B;")}>
+            <span>น้อย</span>
+            {["#EAF6F3", "#BFE3DA", "#7FC7B8", "#3DA593", "#0B655D"].map((c) => (
+              <span key={c} style={css("width:18px;height:12px;border-radius:3px;display:inline-block;background:" + c + ";")} />
+            ))}
+            <span>มาก</span>
           </div>
         </div>
 
@@ -2278,17 +2388,7 @@ export default function MedDrpApp() {
         )}
         <div>
           <label style={editLabel}>ผู้รายงาน</label>
-          <HSelect value={ef.reporter || ""} onChange={(e) => setEf("reporter", e.target.value)} base={editInputSelect} focus={INPUT_FOCUS}>
-            <option value="" disabled>
-              — เลือกผู้รายงาน —
-            </option>
-            {ef.reporter && !REPORTERS.includes(ef.reporter) && <option value={ef.reporter}>{ef.reporter}</option>}
-            {REPORTERS.map((r) => (
-              <option key={r} value={r}>
-                {r}
-              </option>
-            ))}
-          </HSelect>
+          {renderReporterDD("edit-reporter", ef.reporter || "", (v) => setEf("reporter", v), false)}
         </div>
 
         <div style={css("display:flex;gap:10px;margin-top:6px;")}>
