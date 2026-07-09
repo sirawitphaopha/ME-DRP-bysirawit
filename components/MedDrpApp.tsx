@@ -1020,8 +1020,8 @@ export default function MedDrpApp() {
             </div>
 
             {/* date + time */}
-            <div style={css("display:flex;gap:12px;margin-bottom:16px;")}>
-              <div style={css("flex:1;")}>
+            <div style={css("display:flex;gap:12px;margin-bottom:16px;" + (isMobile ? "flex-direction:column;gap:14px;" : ""))}>
+              <div style={css("flex:1;min-width:0;")}>
                 <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>วันที่เกิดเหตุ</label>
                 <div style={css("position:relative;")}>
                   <HInput
@@ -1042,7 +1042,7 @@ export default function MedDrpApp() {
                   )}
                 </div>
               </div>
-              <div style={css("flex:1;")}>
+              <div style={css("flex:1;min-width:0;")}>
                 <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
                   เวลาที่พบ (เวร) <span style={css("color:#0F8A80;font-weight:600;")}>· ⏱ {clock}</span>
                 </label>

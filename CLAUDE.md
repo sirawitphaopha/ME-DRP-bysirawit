@@ -20,8 +20,8 @@
 - **push เสร็จ = เขียน `docs/SESSION-YYYY-MM-DD.md` ทันที** (ไม่ต้องถาม)
 - **commit message ละเอียดที่สุด** (ไทย+อังกฤษ · file-by-file + เหตุผล · จบด้วย `Co-Authored-By:`) · subject `vX.Y.Z:` เฉพาะ commit ที่ bump version จริง
 - **ห้าม bump version เอง** (รอสั่ง) · ก่อน bump รัน `git log --oneline` เช็คของจริง
-- 🌿 **production branch ของ repo นี้ = `claude/chat-reading-push-32m9nv`** (ไม่ใช่ `main`) — push ตัวนี้ถึง deploy · หลัง push verify `git rev-list --left-right --count origin/<branch>...HEAD` = `0 0`
-- **เวอร์ชัน repo นี้ = 3 ตำแหน่ง `X.Y.Z`** (เช่น `0.9.1` · พี่กันสั่ง 9 ก.ค. 2569) — **ไม่ใช้ 4 ตำแหน่งแบบสกิลกลาง** · แก้ที่ `lib/constants.ts` `APP_VERSION` (โชว์หัวเว็บทั้งเดสก์ท็อป+มือถือ)
+- 🌿 **production branch ของ repo นี้ = `main`** — push ตัวนี้ถึง deploy (Cloudflare Workers Builds + GitHub default = `main` · ย้ายจาก `claude/chat-reading-push-32m9nv` มา `main` เมื่อ 9 ก.ค. 2569) · หลัง push verify `git rev-list --left-right --count origin/main...HEAD` = `0 0`
+- **เวอร์ชัน repo นี้ = 4 ตำแหน่ง `X.Y.Z.B`** (เช่น `0.9.2.0` · พี่กันสั่งเปลี่ยนจาก 3 ตำแหน่ง เมื่อ 9 ก.ค. 2569) · แก้ที่ `lib/constants.ts` `APP_VERSION` (โชว์หัวเว็บทั้งเดสก์ท็อป+มือถือ)
 
 **ห้ามซ้ำ:** push ก่อนเทส · แก้ UI เบี่ยงจาก mockup · เหมาว่าแปลก=บั๊กแล้วแก้ · **อ่านกฎทีละท่อน (ต้องอ่านทั้งไฟล์)** · PowerShell แก้ไฟล์ไทย (mojibake → ใช้ Bash) · ลืม redact secret ก่อน commit เอกสาร
 
