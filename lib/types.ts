@@ -96,4 +96,4 @@ export interface SupabaseCfg {
   key: string;
 }
 
-export type ViewName = "form" | "records" | "dashboard" | "settings";
+export type ViewName = "form" | "records" | "dashboard" | "settings" | "manage";

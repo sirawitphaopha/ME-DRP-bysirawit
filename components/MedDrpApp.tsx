@@ -36,7 +36,7 @@ import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
 import { DashRange, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
 
-const ORG_NAME = "ห้องยา OPD";
+const ORG_NAME = "ห้องยา รพ.ปรางค์กู่";
 const DEFAULT_REPORTER = "";
 const START_VIEW: ViewName = "form";
 
@@ -970,17 +970,27 @@ export default function MedDrpApp() {
               <div style={css("font-size:15px;font-weight:700;color:#fff;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")}>
                 Med Error &amp; DRP
               </div>
-              <div style={css("font-size:10.5px;color:#AEE0DA;line-height:1.1;")}>v{APP_VERSION}</div>
+              <div style={css("font-size:10.5px;color:#AEE0DA;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")}>{orgName} · v{APP_VERSION}</div>
             </div>
             <button
-              onClick={() => setState({ view: "settings" })}
+              onClick={() => setState({ view: "manage" })}
               aria-label="ตั้งค่า"
+              style={css(
+                "flex:none;border:none;cursor:pointer;font-size:17px;line-height:1;padding:6px 10px;border-radius:9px;color:#fff;background:" +
+                  (S.view === "manage" ? AM : "rgba(255,255,255,.14)")
+              )}
+            >
+              ⚙
+            </button>
+            <button
+              onClick={() => setState({ view: "settings" })}
+              aria-label="เกี่ยวกับ"
               style={css(
                 "flex:none;border:none;cursor:pointer;font-size:18px;line-height:1;padding:6px 10px;border-radius:9px;color:#fff;background:" +
                   (S.view === "settings" ? AM : "rgba(255,255,255,.14)")
               )}
             >
-              ⚙
+              ⓘ
             </button>
           </div>
           <div style={css("display:flex;gap:6px;margin-top:8px;")}>
@@ -1029,6 +1039,9 @@ export default function MedDrpApp() {
               Dashboard
             </button>
             <button onClick={() => setState({ view: "settings" })} style={css(nav(S.view === "settings"))}>
+              เกี่ยวกับ
+            </button>
+            <button onClick={() => setState({ view: "manage" })} style={css(nav(S.view === "manage"))}>
               ตั้งค่า
             </button>
           </div>
@@ -1039,6 +1052,7 @@ export default function MedDrpApp() {
       {S.view === "dashboard" && renderDashboard()}
       {S.view === "records" && renderRecords()}
       {S.view === "settings" && renderSettings()}
+      {S.view === "manage" && renderManage()}
       {dt2 && renderDetailModal()}
 
       {S.toast && (
@@ -2601,54 +2615,187 @@ export default function MedDrpApp() {
   }
 
   // ---------------- SETTINGS ----------------
-  function renderSettings() {
+  // หน้าตั้งค่า — ยังไม่ทำเนื้อหา แสดงแค่หัวข้อที่จะทำ (placeholder · มี badge "เร็ว ๆ นี้")
+  function renderManage() {
+    const mCard = "background:#fff;border:1px solid #E3EFEC;border-radius:16px;padding:18px 20px;display:flex;align-items:flex-start;gap:13px;";
+    const soon = "flex:none;background:#FEF3E2;color:#B45309;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;";
+    const items = [
+      { icon: "👥", title: "จัดการรายชื่อผู้รายงาน", desc: "เพิ่ม / ลบ / แก้ไขรายชื่อผู้รายงานเองได้ (ตอนนี้มี 16 คน)" },
+      { icon: "🔽", title: "จัดการตัวเลือกในฟอร์ม", desc: "ประเภท Error · ประเภท DRP · จุดที่พบ · การ Intervention" },
+      { icon: "🏥", title: "ข้อมูลหน่วยงาน", desc: "ชื่อโรงพยาบาล · ห้องยา · สำหรับหัวรายงานและไฟล์ส่งออก" },
+    ];
     return (
-      <div style={css("max-width:620px;margin:0 auto;padding:24px 16px 60px;")}>
-        <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:18px;padding:24px;")}>
-          <div style={css("font-size:20px;font-weight:700;color:#0B655D;")}>เชื่อมต่อ Supabase</div>
-          <p style={css("font-size:13.5px;color:#64748B;line-height:1.6;margin:8px 0 18px;")}>
-            ใส่ URL และ anon key ของโปรเจกต์ Supabase เพื่อบันทึกข้อมูลขึ้นฐานข้อมูลจริง หากยังไม่ใส่ ระบบจะเก็บข้อมูลไว้ในเครื่อง (โหมด demo)
-            และยังใช้งานได้เต็มรูปแบบ · โครงตาราง (schema) อยู่ที่ไฟล์ <b>supabase_schema.sql</b> ในโปรเจกต์
-          </p>
-          <div style={css("margin-bottom:14px;")}>
-            <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>Project URL</label>
-            <HInput
-              value={S.cfg.url}
-              onChange={(e) => setState((st) => ({ cfg: { ...st.cfg, url: e.target.value } }))}
-              placeholder="https://xxxx.supabase.co"
-              base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:14px;outline:none;"
-              focus={INPUT_FOCUS}
-            />
+      <div style={css("max-width:640px;margin:0 auto;padding:24px 16px 60px;display:flex;flex-direction:column;gap:14px;")}>
+        <div style={css("padding:2px 2px 2px;")}>
+          <div style={css("font-size:22px;font-weight:800;color:#0B655D;")}>⚙️ ตั้งค่า</div>
+          <div style={css("font-size:12.5px;color:#64748B;margin-top:4px;line-height:1.5;")}>
+            ปรับแต่งค่าต่าง ๆ ของระบบ · หัวข้อด้านล่างกำลังพัฒนา ยังใช้งานไม่ได้
           </div>
-          <div style={css("margin-bottom:18px;")}>
-            <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>anon / publishable key</label>
-            <HInput
-              value={S.cfg.key}
-              onChange={(e) => setState((st) => ({ cfg: { ...st.cfg, key: e.target.value } }))}
-              placeholder="sb_publishable_... หรือ eyJhbGciOi..."
-              base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:14px;outline:none;"
-              focus={INPUT_FOCUS}
-            />
+        </div>
+        {items.map((it) => (
+          <div key={it.title} style={css(mCard)}>
+            <div style={css("font-size:23px;line-height:1;")}>{it.icon}</div>
+            <div style={css("flex:1;min-width:0;")}>
+              <div style={css("font-size:14.5px;font-weight:700;color:#0F172A;")}>{it.title}</div>
+              <div style={css("font-size:12.5px;color:#64748B;margin-top:3px;line-height:1.5;")}>{it.desc}</div>
+            </div>
+            <span style={css(soon)}>เร็ว ๆ นี้</span>
           </div>
-          <div style={css("display:flex;align-items:center;gap:12px;")}>
-            <HButton
-              onClick={() => saveCfg()}
-              base="border:none;background:#F5A623;color:#3B2200;font-size:15px;font-weight:700;padding:12px 22px;border-radius:11px;cursor:pointer;"
-              hover="background:#E4980E"
-            >
-              บันทึกการตั้งค่า
-            </HButton>
+        ))}
+      </div>
+    );
+  }
+
+  function renderSettings() {
+    const medCount = S.records.filter((r) => r.type === "med").length;
+    const drpCount = S.records.filter((r) => r.type === "drp").length;
+    const card = "background:#fff;border:1px solid #E3EFEC;border-radius:16px;padding:20px 22px;";
+    const cTitle = "font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;";
+    const kvL = "color:#64748B;font-size:13.5px;";
+    const kvR = "color:#0F172A;font-size:13.5px;font-weight:600;";
+    const kvRow = "display:flex;justify-content:space-between;gap:12px;padding:5px 0;";
+    const chip = "display:flex;align-items:center;gap:8px;background:#F6FAF9;border:1px solid #E3EFEC;border-radius:10px;padding:8px 13px;";
+    const chipTx = "font-size:12.5px;font-weight:600;color:#334155;";
+    // โลโก้ Supabase (สามเหลี่ยมเขียว) ใช้ซ้ำได้ ปรับขนาดผ่าน size
+    const supaLogo = (size: number) => (
+      <svg width={size} height={size} viewBox="0 0 109 113" fill="none">
+        <path d="M63.7 110.28c-2.85 3.59-8.64 1.62-8.7-2.96l-.9-67.01h45.05c8.16 0 12.71 9.42 7.63 15.81L63.7 110.28z" fill="#3ECF8E" />
+        <path d="M45.32 2.71c2.85-3.59 8.64-1.62 8.7 2.96l.39 67.01H9.94c-8.16 0-12.71-9.42-7.63-15.81L45.32 2.71z" fill="#3ECF8E" fillOpacity=".62" />
+      </svg>
+    );
+    return (
+      <div style={css("max-width:640px;margin:0 auto;padding:24px 16px 60px;display:flex;flex-direction:column;gap:15px;")}>
+        {/* หัวเรื่อง */}
+        <div style={css("text-align:center;padding:6px 0 2px;")}>
+          <div style={css("font-size:25px;font-weight:800;color:#0B655D;letter-spacing:-.3px;")}>Med Error &amp; DRP</div>
+          <div style={css("font-size:12.5px;color:#64748B;margin-top:5px;line-height:1.55;text-wrap:balance;")}>
+            ระบบบันทึกความคลาดเคลื่อนทางยา (Med Error) และปัญหาจากการใช้ยา (DRP) · ห้องยา โรงพยาบาลปรางค์กู่
+          </div>
+        </div>
+
+        {/* ผู้พัฒนา — การ์ดเด่น อยู่บนสุด จัดกึ่งกลางกล่องเดียว */}
+        <div style={css(card + "text-align:center;")}>
+          <div style={css(cTitle)}>👤 ผู้พัฒนา</div>
+          <div style={css("font-size:22px;font-weight:800;color:#0B655D;margin-top:6px;line-height:1.25;letter-spacing:-.2px;")}>เภสัชกร สิรวิชญ์ เผ่าผา</div>
+          <div style={css("font-size:12.5px;color:#64748B;margin-top:5px;")}>เลขที่ใบประกอบวิชาชีพเภสัชกรรม 47186</div>
+          <div style={css("font-size:12.5px;color:#64748B;margin-top:3px;line-height:1.55;")}>
+            กลุ่มงานเภสัชกรรมและคุ้มครองผู้บริโภค
+            <br />
+            โรงพยาบาลปรางค์กู่
+          </div>
+          <a
+            href="mailto:siravitphoapha9928@hotmail.com"
+            style={css(
+              "display:inline-flex;align-items:center;gap:8px;margin-top:14px;background:#E7F3F1;color:#0B655D;font-size:13px;font-weight:600;padding:9px 15px;border-radius:10px;text-decoration:none;"
+            )}
+          >
+            ✉️ siravitphoapha9928@hotmail.com
+          </a>
+        </div>
+
+        {/* ข้อมูลแอป */}
+        <div style={css(card)}>
+          <div style={css(cTitle)}>📱 ข้อมูลแอป</div>
+          <div style={css(kvRow)}>
+            <span style={css(kvL)}>เวอร์ชันปัจจุบัน</span>
+            <span style={css("color:#0B655D;font-size:13.5px;font-weight:700;")}>v{APP_VERSION}</span>
+          </div>
+          <div style={css(kvRow)}>
+            <span style={css(kvL)}>เผยแพร่ครั้งแรก</span>
+            <span style={css(kvR)}>8 กรกฎาคม 2569</span>
+          </div>
+          <div style={css(kvRow)}>
+            <span style={css(kvL)}>อัปเดตล่าสุด</span>
+            <span style={css(kvR)}>10 กรกฎาคม 2569</span>
+          </div>
+        </div>
+
+        {/* เก็บข้อมูลที่ไหน */}
+        <div style={css(card)}>
+          <div style={css(cTitle)}>🗄️ ข้อมูลเก็บที่ไหน</div>
+          <div style={css("display:flex;align-items:center;gap:13px;")}>
+            {supaLogo(34)}
+            <div>
+              <div style={css("font-size:15px;font-weight:700;color:#0F172A;")}>Supabase</div>
+              <div style={css("font-size:12px;color:#64748B;line-height:1.4;")}>ฐานข้อมูล PostgreSQL บนคลาวด์{isMobile ? <br /> : " · "}เข้ารหัส · สำรองข้อมูลอัตโนมัติ</div>
+            </div>
+          </div>
+          <div style={css("margin-top:15px;padding-top:14px;border-top:1px solid #EAF3F1;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;")}>
             <span style={{ fontSize: "13px", fontWeight: 600, color: cfgConfigured ? "#0F8A80" : "#B45309" }}>
-              {cfgConfigured ? "● เชื่อมต่อ Supabase" : "● โหมด demo (เก็บในเครื่อง)"}
+              {cfgConfigured ? "● เชื่อมต่อฐานข้อมูลแล้ว" : "● โหมด demo (เก็บในเครื่อง)"}
+            </span>
+            <span style={css("font-size:12.5px;color:#64748B;")}>
+              ในระบบ: Med {medCount} · DRP {drpCount} เคส
             </span>
           </div>
-          <div style={css("margin-top:22px;padding-top:18px;border-top:1px solid #EAF3F1;font-size:13px;color:#64748B;line-height:1.7;")}>
-            <div style={css("font-weight:700;color:#0B655D;margin-bottom:4px;")}>ขั้นตอนย่อ</div>
-            1. สร้างโปรเจกต์ที่ supabase.com
-            <br />
-            2. เปิด SQL Editor แล้วรันไฟล์ <b>supabase_schema.sql</b>
-            <br />
-            3. คัดลอก URL + anon/publishable key จาก Project Settings → API มาวางที่นี่
+        </div>
+
+        {/* สร้างด้วยอะไร */}
+        <div style={css(card)}>
+          <div style={css(cTitle)}>🛠️ สร้างด้วยเทคโนโลยี</div>
+          <div style={css("display:flex;flex-direction:column;gap:8px;align-items:center;")}>
+            <div style={css("display:flex;gap:8px;flex-wrap:wrap;justify-content:center;")}>
+              <div style={css(chip)}>
+                <svg width="19" height="19" viewBox="0 0 24 24">
+                  <circle cx="12" cy="12" r="12" fill="#000" />
+                  <text x="12" y="16.5" fontSize="11" fontWeight="700" fill="#fff" textAnchor="middle" fontFamily="Arial">
+                    N
+                  </text>
+                </svg>
+                <span style={css(chipTx)}>Next.js 15</span>
+              </div>
+              <div style={css(chip)}>
+                <svg width="21" height="21" viewBox="-11.5 -10.23 23 20.46">
+                  <circle r="2.05" fill="#61DAFB" />
+                  <g stroke="#61DAFB" strokeWidth="1.1" fill="none">
+                    <ellipse rx="11" ry="4.2" />
+                    <ellipse rx="11" ry="4.2" transform="rotate(60)" />
+                    <ellipse rx="11" ry="4.2" transform="rotate(120)" />
+                  </g>
+                </svg>
+                <span style={css(chipTx)}>React 19</span>
+              </div>
+              <div style={css(chip)}>
+                <svg width="18" height="18" viewBox="0 0 24 24">
+                  <rect width="24" height="24" rx="4" fill="#3178C6" />
+                  <text x="12" y="16.5" fontSize="10" fontWeight="700" fill="#fff" textAnchor="middle" fontFamily="Arial">
+                    TS
+                  </text>
+                </svg>
+                <span style={css(chipTx)}>TypeScript</span>
+              </div>
+            </div>
+            <div style={css("display:flex;gap:8px;flex-wrap:wrap;justify-content:center;")}>
+              <div style={css(chip)}>
+                {supaLogo(17)}
+                <span style={css(chipTx)}>Supabase</span>
+              </div>
+              <div style={css(chip)}>
+                <svg width="24" height="17" viewBox="0 0 48 30">
+                  <path d="M33 27H12.5A9 9 0 1 1 15 9.5 12 12 0 0 1 37.5 22.5c3.5.2 4.5 4.5-4.5 4.5z" fill="#F38020" />
+                </svg>
+                <span style={css(chipTx)}>Cloudflare</span>
+              </div>
+            </div>
+          </div>
+          <div style={css("margin-top:15px;padding-top:14px;border-top:1px solid #EAF3F1;display:flex;align-items:center;justify-content:center;gap:8px;font-size:12.5px;color:#64748B;line-height:1.5;")}>
+            <svg width="17" height="17" viewBox="0 0 100 100" style={{ flexShrink: 0 }}>
+              <g stroke="#D97757" strokeWidth="11" strokeLinecap="round">
+                <line x1="50" y1="13" x2="50" y2="87" />
+                <line x1="13" y1="50" x2="87" y2="50" />
+                <line x1="23.8" y1="23.8" x2="76.2" y2="76.2" />
+                <line x1="76.2" y1="23.8" x2="23.8" y2="76.2" />
+              </g>
+            </svg>
+            พัฒนาด้วย <b style={css("color:#334155;")}>Claude Code</b>
+          </div>
+        </div>
+
+        {/* PDPA */}
+        <div style={css("background:#FEF7EC;border:1px solid #F6D89A;border-radius:16px;padding:16px 20px;")}>
+          <div style={css("font-size:13px;font-weight:700;color:#B45309;margin-bottom:6px;")}>🔒 ความปลอดภัยข้อมูล (PDPA)</div>
+          <div style={css("font-size:12.5px;color:#92400E;line-height:1.65;")}>
+            ข้อมูลผู้ป่วย (HN / AN) ใช้เฉพาะงานบริบาลเภสัชกรรมภายในโรงพยาบาล จัดเก็บอย่างปลอดภัยตามหลักคุ้มครองข้อมูลส่วนบุคคล (PDPA) ห้ามเผยแพร่นอกวัตถุประสงค์
           </div>
         </div>
       </div>

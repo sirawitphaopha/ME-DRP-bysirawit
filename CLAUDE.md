@@ -31,7 +31,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.4.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.5.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -77,6 +77,7 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 - **บังคับกรอก (v0.9.4.0):** validation ใน `save` set `errors` → ดาวแดง `*` + เตือนใต้ช่อง · บังคับ: HN/วันที่/จุดที่พบ/ผู้รายงาน + Med(ประเภท Error/ลักษณะ/ความรุนแรง/รายละเอียดเหตุการณ์) + DRP(ประเภท DRP/สาเหตุ/Intervention/ผลลัพธ์/รายละเอียด) · **ไม่บังคับ:** การแก้ไข/จัดการ · ชื่อยา · รูป · HAD/LASA
 - **จุดที่พบ + AN (v0.9.4.0):** `LOCATIONS` = ห้องยา OPD ทั่วไป/OPD NCD/**IPD** (`IPD_LOCATION`) · `renderLocationField()` ใช้ร่วม Med+DRP วางก่อน HN · **AN** (คอลัมน์ `an` text · รูปแบบ `69-01234` มีขีด · filter `[^0-9-]`) อยู่แถวเดียวกับ HN · `disabled` จนเลือก IPD แล้วบังคับ · ⚠️ ต้องรัน `supabase/migrations/0002_add_an_column.sql`
 - **ปุ่มดูความหมายลักษณะ (v0.9.4.0):** state `showNatureLegend` + ปุ่ม `ⓘ ดูความหมาย` กางคำอธิบาย `ERROR_NATURE` ทั้งหมด (เหมือน `showSevLegend` ของ A–I)
+- **หน้าเกี่ยวกับ/ตั้งค่า (v0.9.5.0):** `renderSettings()` = หน้า **เกี่ยวกับ** (view `settings` · label เมนู "เกี่ยวกับ" · ข้อมูลแอป/ผู้พัฒนา/Supabase+โลโก้/tech stack/PDPA · **เอาช่องกรอก Supabase config ออก**) · `renderManage()` = หน้า **ตั้งค่า** (view `manage` · placeholder 3 หัวข้อ + badge "เร็ว ๆ นี้" ยังไม่ทำเนื้อหา) · เมนู: view `settings`→label "เกี่ยวกับ" + เพิ่มปุ่ม "ตั้งค่า"→view `manage` (มือถือ ⚙+ⓘ / เดสก์ท็อป) · `ORG_NAME`="ห้องยา รพ.ปรางค์กู่" (หัวเว็บ+dashboard) · tab title มี รพ.ปรางค์กู่ (`app/layout.tsx`)
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)

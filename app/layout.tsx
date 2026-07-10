@@ -9,7 +9,7 @@ const sarabun = Sarabun({
 });
 
 export const metadata: Metadata = {
-  title: "รายงานความคลาดเคลื่อน · Med Error & DRP",
+  title: "รายงานความคลาดเคลื่อน · Med Error & DRP · รพ.ปรางค์กู่",
   description: "แบบฟอร์มรายงาน Med Error และ DRP ห้องยา OPD + Dashboard",
 };
 
