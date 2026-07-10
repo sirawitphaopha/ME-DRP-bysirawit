@@ -96,4 +96,20 @@ export interface SupabaseCfg {
   key: string;
 }
 
+// คลังยา (ตาราง drugs) — สำหรับ autocomplete ค้นหายา
+export interface Drug {
+  id: number;
+  generic: string;
+  strength?: string | null;
+  unit?: string | null;
+  percent?: string | null;
+  form?: string | null;
+  route?: string | null;
+  release?: string | null;
+  brand?: string | null;
+  had?: boolean;
+  preg?: string | null;
+  renal?: boolean;
+}
+
 export type ViewName = "form" | "records" | "dashboard" | "settings" | "manage";

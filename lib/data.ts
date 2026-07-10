@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Incident, SupabaseCfg } from "./types";
+import { Drug, Incident, SupabaseCfg } from "./types";
 
 // คอลัมน์ที่ sync กับตาราง public.incidents
 const COLS = [
@@ -103,4 +103,12 @@ export async function updateIncident(cfg: SupabaseCfg, rec: Incident): Promise<v
   const c = getClient(cfg);
   const { error } = await c.from("incidents").update(toRow(rec)).eq("id", rec.id);
   if (error) throw error;
+}
+
+// โหลดคลังยาทั้งหมด (สำหรับ autocomplete · โหลดครั้งเดียวแล้ว cache ในเครื่อง)
+export async function fetchDrugs(cfg: SupabaseCfg): Promise<Drug[]> {
+  const c = getClient(cfg);
+  const { data, error } = await c.from("drugs").select("*").order("generic");
+  if (error) throw error;
+  return (data || []) as Drug[];
 }

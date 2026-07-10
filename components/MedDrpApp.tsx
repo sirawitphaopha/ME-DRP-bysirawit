@@ -25,16 +25,18 @@ import {
   fmtThaiDateTime,
   natureText,
   natureToArray,
+  drugFlatLine,
+  drugSearchText,
   nowTime,
   outcomeLabel,
   shiftOf,
   today,
 } from "@/lib/helpers";
 import { seed } from "@/lib/seed";
-import { envConfig, fetchIncidents, insertIncident, isConfigured, updateIncident } from "@/lib/data";
+import { envConfig, fetchDrugs, fetchIncidents, insertIncident, isConfigured, updateIncident } from "@/lib/data";
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
-import { DashRange, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
+import { DashRange, Drug, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
 
 const ORG_NAME = "ห้องยา รพ.ปรางค์กู่";
 const DEFAULT_REPORTER = "";
@@ -66,6 +68,8 @@ interface AppState {
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
   ddUp: boolean; // เมนู dropdown เด้งขึ้นบน (true) เมื่อช่องอยู่ครึ่งล่างจอ
+  drugs: Drug[]; // คลังยา (autocomplete · โหลดครั้งเดียวแล้ว cache)
+  drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น
 }
 
 // ===== style generators (พอร์ตจาก renderVals) =====
@@ -120,6 +124,17 @@ const badgeMed =
   "background:#E7F3F1;color:#0B655D;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;";
 const badgeDrp =
   "background:#FEF3E2;color:#B45309;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;";
+// สีธง Preg category ตามความเสี่ยง (A ปลอดภัยสุด → X ห้ามใช้ในหญิงตั้งครรภ์)
+const pregColor = (p: string): string => {
+  const m: Record<string, string> = {
+    A: "background:#DCF3E3;color:#15803D;", // เขียวเข้ม
+    B: "background:#E8F1DD;color:#4D7C0F;", // เขียว
+    C: "background:#FEF3E2;color:#B45309;", // เหลือง/ส้ม
+    D: "background:#FCE4D6;color:#C2410C;", // ส้มแดง
+    X: "background:#FBE0DE;color:#B3261E;", // แดง
+  };
+  return m[p] || "background:#E9ECF3;color:#43526B;"; // ไม่ระบุ = เทา
+};
 
 export default function MedDrpApp() {
   const [mounted, setMounted] = useState(false);
@@ -147,6 +162,8 @@ export default function MedDrpApp() {
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
     ddUp: false,
+    drugs: [],
+    drugSug: null,
   }));
 
   const stateRef = useRef(state);
@@ -318,6 +335,21 @@ export default function MedDrpApp() {
     setMounted(true);
     // load records after cfg is set
     setTimeout(() => loadRecords(), 0);
+    // โหลดคลังยา (autocomplete) — เอา cache ในเครื่องขึ้นก่อน แล้วค่อย fetch มาทับ (โหลดครั้งเดียว)
+    try {
+      const dc = JSON.parse(localStorage.getItem("meddrp_drugs") || "null");
+      if (dc && Array.isArray(dc.list) && dc.list.length) setState({ drugs: dc.list });
+    } catch {}
+    if (isConfigured(cfg)) {
+      fetchDrugs(cfg)
+        .then((list) => {
+          if (list.length) setState({ drugs: list });
+          try {
+            localStorage.setItem("meddrp_drugs", JSON.stringify({ list, ts: Date.now() }));
+          } catch {}
+        })
+        .catch(() => {});
+    }
     if (restored) setTimeout(() => flash("กู้คืนร่างที่ค้างไว้ ✓"), 400);
     return () => {
       Object.values(ivRef.current).forEach((iv) => iv && clearInterval(iv));
@@ -381,6 +413,11 @@ export default function MedDrpApp() {
   const addDrug = () => {
     setState((s) => ({ form: { ...s.form, drugs: [...(s.form.drugs || [""]), ""] } }));
     draftSoon();
+  };
+  // เลือกยาจากรายการ suggest → ใส่เป็นข้อความบรรทัดเดียว + ปิด suggest
+  const pickDrug = (i: number, d: Drug) => {
+    setDrugAt(i, drugFlatLine(d));
+    setState({ drugSug: null });
   };
   const removeDrug = (i: number) => {
     setState((s) => {
@@ -1328,35 +1365,109 @@ export default function MedDrpApp() {
 
   function renderDrugRows() {
     const rows = f.drugs || [""];
+    const sug = S.drugSug;
     return (
       <div style={css("display:flex;flex-direction:column;gap:8px;")}>
-        {rows.map((val, i) => (
-          <div key={i} style={css("display:flex;gap:8px;align-items:center;")}>
-            <HInput
-              value={val}
-              onChange={(e) => setDrugAt(i, e.target.value)}
-              placeholder={type === "med" ? "เช่น Amoxicillin 500 mg" : "เช่น Warfarin 2 mg"}
-              base="flex:1;min-width:0;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
-              focus={INPUT_FOCUS}
-            />
-            {rows.length > 1 && (
-              <button
-                onClick={() => removeDrug(i)}
-                style={css(
-                  "flex:none;border:1.5px solid #E2E8F0;background:#fff;color:#B42318;width:44px;height:44px;border-radius:11px;font-size:20px;cursor:pointer;line-height:1;"
+        {rows.map((val, i) => {
+          const active = !!(sug && sug.i === i && sug.term.trim() !== "");
+          const term = active ? sug!.term.trim().toLowerCase() : "";
+          const matches = active ? S.drugs.filter((d) => drugSearchText(d).includes(term)).slice(0, 25) : [];
+          // ไฮไลต์คำค้นในข้อความ (ชื่อ generic / ชื่อการค้า)
+          const hl = (text: string) => {
+            if (!term) return text;
+            const idx = text.toLowerCase().indexOf(term);
+            if (idx < 0) return text;
+            return (
+              <>
+                {text.slice(0, idx)}
+                <span style={css("color:#0E7A66;font-weight:800;")}>{text.slice(idx, idx + term.length)}</span>
+                {text.slice(idx + term.length)}
+              </>
+            );
+          };
+          return (
+            <div key={i} style={css("position:relative;")}>
+              <div style={css("display:flex;gap:8px;align-items:center;")}>
+                <HInput
+                  value={val}
+                  onChange={(e) => {
+                    setDrugAt(i, e.target.value);
+                    setState({ drugSug: { i, term: e.target.value } });
+                  }}
+                  onFocus={() => {
+                    if (val && val.trim()) setState({ drugSug: { i, term: val } });
+                  }}
+                  onBlur={() => setTimeout(() => setState((s) => (s.drugSug && s.drugSug.i === i ? { drugSug: null } : {})), 180)}
+                  placeholder={type === "med" ? "พิมพ์ค้นหายา เช่น Amox…" : "พิมพ์ค้นหายา เช่น Warfarin…"}
+                  autoComplete="off"
+                  base="flex:1;min-width:0;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
+                  focus={INPUT_FOCUS}
+                />
+                {rows.length > 1 && (
+                  <button
+                    onClick={() => removeDrug(i)}
+                    style={css(
+                      "flex:none;border:1.5px solid #E2E8F0;background:#fff;color:#B42318;width:44px;height:44px;border-radius:11px;font-size:20px;cursor:pointer;line-height:1;"
+                    )}
+                  >
+                    ×
+                  </button>
                 )}
-              >
-                ×
-              </button>
-            )}
-          </div>
-        ))}
+              </div>
+              {active && (
+                <div
+                  style={css(
+                    "position:absolute;top:calc(100% + 6px);left:0;right:0;background:#fff;border:1px solid #E2E7E4;border-radius:12px;box-shadow:0 10px 28px rgba(11,101,93,.16);overflow:hidden;z-index:20;max-height:290px;overflow-y:auto;"
+                  )}
+                >
+                  {matches.length === 0 ? (
+                    <div style={css("padding:15px;font-size:13px;color:#9AA6A0;text-align:center;line-height:1.5;")}>
+                      ไม่พบยาในระบบ — พิมพ์ชื่อเองต่อได้เลย
+                    </div>
+                  ) : (
+                    matches.map((d) => {
+                      let sv = [d.strength, d.unit].filter(Boolean).join(" ");
+                      if (sv && d.strength && d.strength.includes("+")) sv = "(" + sv + ")";
+                      const doseStr = [sv, d.percent ? d.percent + "%" : ""].filter(Boolean).join(" ");
+                      const tag = "font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:100px;white-space:nowrap;";
+                      return (
+                        <div
+                          key={d.id}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            pickDrug(i, d);
+                          }}
+                          style={css("padding:11px 14px;border-bottom:1px solid #F0F2F0;cursor:pointer;")}
+                        >
+                          <div style={css("font-size:14.5px;font-weight:600;color:#16241F;line-height:1.4;")}>
+                            {hl(d.generic)}
+                            {doseStr ? <span style={css("font-weight:700;color:#0F172A;")}> {doseStr}</span> : null}
+                            {d.form ? <span style={css("font-weight:600;color:#334155;")}> {d.form}</span> : null}
+                            {d.brand ? <span style={css("color:#0E7A66;font-weight:600;")}> ({hl(d.brand)})</span> : null}
+                          </div>
+                          {(d.route || d.preg || d.had || d.renal) && (
+                            <div style={css("display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;")}>
+                              {d.route ? <span style={css("font-size:12px;color:#8A968F;")}>{d.route}</span> : null}
+                              {d.preg && <span style={css(tag + pregColor(d.preg))}>Preg {d.preg}</span>}
+                              {d.had && <span style={css(tag + "background:#FCE9E8;color:#B3261E;")}>⚠ HAD</span>}
+                              {d.renal && <span style={css(tag + "background:#FFF2DC;color:#8A5A00;")}>Renal</span>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <HButton
           onClick={() => addDrug()}
           base="align-self:flex-start;border:1.5px dashed #C6DED9;background:#F5FAF9;color:#0B655D;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:10px;cursor:pointer;"
           hover="border-color:#F5A623;color:#B45309"
         >
-          + เพิ่มยา
+          + เพิ่มยา (พิมพ์เองถ้าไม่เจอในระบบ)
         </HButton>
       </div>
     );

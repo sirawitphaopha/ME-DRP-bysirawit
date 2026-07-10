@@ -1,4 +1,4 @@
-import { FormState, Incident, RecordFilter } from "./types";
+import { Drug, FormState, Incident, RecordFilter } from "./types";
 import { INTERVENTIONS, LOCATIONS, OUTCOMES } from "./constants";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -110,4 +110,26 @@ export function outcomeLabel(k?: string): string {
 
 export function natureToArray(v: string[] | string | undefined): string[] {
   return Array.isArray(v) ? v : v ? [v] : [];
+}
+
+// รวมข้อมูลยาเป็นข้อความบรรทัดเดียว (ตาม mockup) สำหรับใส่ในช่องชื่อยา
+export function drugFlatLine(d: Drug): string {
+  let s = d.generic;
+  let sv = [d.strength, d.unit].filter(Boolean).join(" ");
+  // ยาสูตรผสม (ความแรงหลายค่า เช่น "500 + 125") ใส่วงเล็บให้อ่านง่าย ไม่สับสนกับ " + " ของชื่อยา
+  if (sv && d.strength && d.strength.includes("+")) sv = "(" + sv + ")";
+  const dose = [sv, d.percent ? d.percent + "%" : ""].filter(Boolean).join(" "); // เพิ่มความเข้มข้น (%)
+  if (dose) s += " " + dose;
+  if (d.form) s += " " + d.form;
+  if (d.route) s += " " + d.route; // ทางให้ยา (IV/IM/oral)
+  if (d.brand) s += " (" + d.brand + ")";
+  if (d.preg) s += " (Preg " + d.preg + ")";
+  if (d.had) s += " (HAD)";
+  if (d.renal) s += " (Renal)";
+  return s;
+}
+
+// ข้อความค้นหาของยา (generic + brand · lowercase) สำหรับ filter
+export function drugSearchText(d: Drug): string {
+  return (d.generic + " " + (d.brand || "")).toLowerCase();
 }
