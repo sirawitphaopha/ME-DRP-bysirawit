@@ -40,9 +40,12 @@ export function toRow(o: Incident): Record<string, unknown> {
     const v = (o as unknown as Record<string, unknown>)[c];
     if (v !== undefined) r[c] = v;
   }
-  // error_nature ต้องเป็น array เสมอ (คอลัมน์ jsonb)
+  // error_nature / error_type ต้องเป็น array เสมอ (คอลัมน์ jsonb)
   if (r.error_nature !== undefined && !Array.isArray(r.error_nature)) {
     r.error_nature = r.error_nature ? [r.error_nature] : [];
+  }
+  if (r.error_type !== undefined && !Array.isArray(r.error_type)) {
+    r.error_type = r.error_type ? [r.error_type] : [];
   }
   return r;
 }

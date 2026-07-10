@@ -19,7 +19,7 @@ export interface Incident {
 
   // Med Error
   location?: string;
-  error_type?: string;
+  error_type?: string[] | string; // array (เลือกหลายอันได้) หรือ string (ข้อมูลเก่า)
   error_nature?: string[] | string; // array (ใหม่) หรือ string (ข้อมูลเก่า)
   error_nature_other?: string;
   severity?: string;
@@ -48,7 +48,7 @@ export interface FormState {
   occurred_time: string;
   hn: string;
   location: string;
-  error_type: string;
+  error_type: string[];
   error_nature: string[];
   error_nature_other: string;
   severity: string;

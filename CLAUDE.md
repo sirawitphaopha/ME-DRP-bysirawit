@@ -69,7 +69,8 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 ## รูปแบบข้อมูล (`lib/types.ts` → `Incident`)
 
 - ตารางเดียว `incidents` แยก Med/DRP ด้วย `type: 'med' | 'drp'`
-- `error_nature` และ `drugs` เป็น **array** (jsonb) — โค้ดรองรับข้อมูลเก่าที่เป็น string ด้วย (ดู `helpers.natureText/drugArr`)
+- `error_nature`, `error_type` และ `drugs` เป็น **array** (jsonb) — โค้ดรองรับข้อมูลเก่าที่เป็น string ด้วย (ดู `helpers.natureText/natureToArray/drugArr`)
+- **ประเภท Error (v0.9.3.0):** `ERROR_TYPES` = 5 อัน (เพิ่ม `Pre-dispensing`=จัดยา แยกจาก `Dispensing`=จ่ายยา) · แต่ละอันมี `th` (ป้ายไทยโชว์ในวงเล็บบนปุ่ม · ค่าที่บันทึกยังเป็น key อังกฤษ) · **เลือกหลายอันได้** (`error_type` เป็น array/jsonb เหมือน error_nature · ปุ่ม `toggleErrType`) · มือถือ = grid 2 คอลัมน์ (ปุ่มคี่ตัวสุดท้าย span เต็มแถวอยู่กลาง) · ⚠️ ต้องรัน `supabase/migrations/0001_error_type_to_jsonb.sql` (text→jsonb) ก่อน deploy
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)

@@ -23,6 +23,7 @@ import {
   emptyForm,
   fmtThaiDateTime,
   natureText,
+  natureToArray,
   nowTime,
   outcomeLabel,
   shiftOf,
@@ -176,7 +177,7 @@ export default function MedDrpApp() {
   const hasDraftContent = (f: FormState | undefined) =>
     !!(
       f &&
-      (f.error_type ||
+      ((f.error_type && f.error_type.length) ||
         f.drp_type ||
         f.hn ||
         f.detail ||
@@ -397,6 +398,16 @@ export default function MedDrpApp() {
     });
     draftSoon();
   };
+  const toggleErrType = (k: string) => {
+    setState((s) => {
+      const cur = Array.isArray(s.form.error_type) ? s.form.error_type.slice() : s.form.error_type ? [s.form.error_type] : [];
+      const i = cur.indexOf(k);
+      if (i >= 0) cur.splice(i, 1);
+      else cur.push(k);
+      return { form: { ...s.form, error_type: cur } };
+    });
+    draftSoon();
+  };
   const onAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target && e.target.files && e.target.files[0];
     if (!file) return;
@@ -429,7 +440,7 @@ export default function MedDrpApp() {
       type = stateRef.current.type;
     const errs: Record<string, boolean> = {};
     if (type === "med") {
-      if (!f.error_type) errs.error_type = true;
+      if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
       if (!f.severity) errs.severity = true;
     } else {
       if (!f.drp_type) errs.drp_type = true;
@@ -567,7 +578,7 @@ export default function MedDrpApp() {
   const S = state;
   const f = S.form;
   const type = S.type;
-  const errObj = ERROR_TYPES.find((t) => t.key === f.error_type);
+  const errTypeSel = ERROR_TYPES.filter((t) => natureToArray(f.error_type).includes(t.key));
   const sevObj = SEVERITY.find((s) => s.code === f.severity);
   const drpObj = DRP_TYPES.find((t) => t.key === f.drp_type);
   const orgName = ORG_NAME;
@@ -631,7 +642,9 @@ export default function MedDrpApp() {
 
   const byErr: Record<string, number> = {};
   recs.filter((r) => r.type === "med").forEach((r) => {
-    if (r.error_type) byErr[r.error_type] = (byErr[r.error_type] || 0) + 1;
+    natureToArray(r.error_type).forEach((k) => {
+      byErr[k] = (byErr[k] || 0) + 1;
+    });
   });
   const emax = Math.max(1, ...Object.values(byErr), 1);
   const errorBreak = ERROR_TYPES.map((t) => ({
@@ -793,7 +806,7 @@ export default function MedDrpApp() {
   const rlist = (S.records || []).filter((r) => {
     if (rf.type !== "all" && r.type !== rf.type) return false;
     if (rf.location && r.location !== rf.location) return false;
-    if (rf.error_type && r.error_type !== rf.error_type) return false;
+    if (rf.error_type && !natureToArray(r.error_type).includes(rf.error_type)) return false;
     if (rf.error_nature) {
       const en = r.error_nature;
       const has = Array.isArray(en) ? en.includes(rf.error_nature) : en === rf.error_nature;
@@ -826,7 +839,7 @@ export default function MedDrpApp() {
     place: r.type === "med" ? r.location || "—" : "—",
     cat:
       r.type === "med"
-        ? r.error_type || "—"
+        ? natureText(r.error_type)
         : r.drp_type === "อื่น ๆ" && r.drp_type_other
         ? "อื่น ๆ: " + r.drp_type_other
         : r.drp_type || "—",
@@ -855,7 +868,7 @@ export default function MedDrpApp() {
           ["เวลาที่พบ", tval],
           ["HN ผู้ป่วย", dt2.hn],
           ["จุดที่พบ", dt2.location],
-          ["ประเภท Error", dt2.error_type],
+          ["ประเภท Error", natureText(dt2.error_type)],
           ["ลักษณะความคลาดเคลื่อน", natureDisp],
           ["ระดับความรุนแรง (NCC MERP)", dt2.severity],
           ["ชื่อยาที่เกี่ยวข้อง", drugDisp],
@@ -884,7 +897,7 @@ export default function MedDrpApp() {
     const rr: [string, unknown][] = isM
       ? [
           ["วันที่/เวลา", (h.occurred_at || "—") + " " + (h.occurred_time || "")],
-          ["ประเภท Error", h.error_type],
+          ["ประเภท Error", natureText(h.error_type)],
           ["ลักษณะ", natureText(h.error_nature, h.error_nature_other)],
           ["ระดับ", h.severity],
           ["ยา", h.drug],
@@ -910,6 +923,7 @@ export default function MedDrpApp() {
   });
   const ef = S.editForm || {};
   const efNatureVal = (Array.isArray(ef.error_nature) ? ef.error_nature[0] : ef.error_nature) || "";
+  const efErrTypeVal = (Array.isArray(ef.error_type) ? ef.error_type[0] : ef.error_type) || "";
 
   const cfgConfigured = isConfigured(S.cfg);
 
@@ -1313,26 +1327,56 @@ export default function MedDrpApp() {
         {/* ประเภท Error */}
         <div style={css("margin-bottom:16px;")}>
           <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
-            ประเภท Error <span style={css("color:#DC2626;")}>*</span>
+            ประเภท Error <span style={css("color:#DC2626;")}>*</span>{" "}
+            <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
           </label>
-          <div style={css("display:flex;flex-wrap:wrap;gap:8px;")}>
-            {ERROR_TYPES.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setField("error_type", f.error_type === t.key ? "" : t.key)}
-                style={css(chip(f.error_type === t.key))}
-              >
-                {t.key}
-              </button>
-            ))}
+          <div style={css(isMobile ? "display:grid;grid-template-columns:1fr 1fr;gap:8px;" : "display:flex;flex-wrap:wrap;gap:8px;")}>
+            {ERROR_TYPES.map((t, i) => {
+              const sel = natureToArray(f.error_type).includes(t.key);
+              // ปุ่มตัวสุดท้ายที่เหลือเดี่ยว (จำนวนคี่) → span เต็มแถว อยู่กลาง สมมาตร + ไม่ลดฟอนต์
+              const lastOdd = isMobile && i === ERROR_TYPES.length - 1 && ERROR_TYPES.length % 2 === 1;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => toggleErrType(t.key)}
+                  style={css(
+                    chip(sel) +
+                      (isMobile
+                        ? lastOdd
+                          ? "grid-column:1 / -1;width:100%;box-sizing:border-box;text-align:center;white-space:normal;line-height:1.25;padding:10px 8px;"
+                          : "width:100%;box-sizing:border-box;text-align:center;font-size:12.5px;white-space:normal;line-height:1.25;padding:10px 8px;"
+                        : "")
+                  )}
+                >
+                  {t.key}
+                  {t.th ? (
+                    <>
+                      {" "}
+                      <span style={{ whiteSpace: "nowrap" }}>({t.th})</span>
+                    </>
+                  ) : null}
+                </button>
+              );
+            })}
           </div>
-          {errObj && (
+          {errTypeSel.length > 0 && (
             <div
               style={css(
-                "margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:9px 12px;font-size:13px;color:#92400E;line-height:1.5;"
+                "margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:9px;"
               )}
             >
-              {errObj.desc}
+              {errTypeSel.map((t) => (
+                <div key={t.key} style={css("display:flex;gap:9px;align-items:flex-start;")}>
+                  <span
+                    style={css(
+                      "flex:none;background:#F5A623;color:#3B2200;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;"
+                    )}
+                  >
+                    {t.th || t.key}
+                  </span>
+                  <span style={css("font-size:12.5px;color:#92400E;line-height:1.5;")}>{t.desc}</span>
+                </div>
+              ))}
             </div>
           )}
           {S.errors.error_type && (
@@ -2311,7 +2355,7 @@ export default function MedDrpApp() {
             </div>
             <div>
               <label style={editLabel}>ประเภท Error</label>
-              <select value={ef.error_type || ""} onChange={(e) => setEf("error_type", e.target.value)} style={css(editInputSelect)}>
+              <select value={efErrTypeVal} onChange={(e) => setEf("error_type", e.target.value ? [e.target.value] : [])} style={css(editInputSelect)}>
                 <option value="">—</option>
                 {errorTypeOpts.map((o) => (
                   <option key={o} value={o}>

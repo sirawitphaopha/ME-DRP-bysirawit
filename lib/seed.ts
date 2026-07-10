@@ -14,7 +14,7 @@ export function seed(): Incident[] {
     "Amlodipine 5 mg",
     "Omeprazole 20 mg",
   ];
-  const errs = ["Prescribing", "Transcribing", "Dispensing", "Administration"];
+  const errs = ["Prescribing", "Transcribing", "Pre-dispensing", "Dispensing", "Administration"];
   const sev = ["A", "B", "C", "C", "C", "D", "D", "E", "B", "C", "A", "F"];
   const drps = ["ขนาดยา", "Drug interaction", "ยาซ้ำซ้อน", "ADR/แพ้ยา", "Adherence", "ยาไม่เหมาะสม"];
   const iv = ["ปรึกษาแพทย์ผู้สั่งใช้", "ปรับขนาด/ความถี่ยา", "เปลี่ยนรายการยา", "ให้คำแนะนำผู้ป่วย"];

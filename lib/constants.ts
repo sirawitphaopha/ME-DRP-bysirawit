@@ -1,10 +1,11 @@
 // ค่าคงที่ทั้งหมด — พอร์ตตรงจากดีไซน์ DC (Med Error DRP.dc.html)
 
-export const APP_VERSION = "0.9.2.1";
+export const APP_VERSION = "0.9.3.0";
 
 export interface KeyDesc {
   key: string;
   desc: string;
+  th?: string; // ป้ายไทยสั้น ๆ โชว์ในวงเล็บบนปุ่ม (ค่าที่บันทึกยังใช้ key อังกฤษ)
 }
 export interface CodeDesc {
   code: string;
@@ -12,10 +13,11 @@ export interface CodeDesc {
 }
 
 export const ERROR_TYPES: KeyDesc[] = [
-  { key: "Prescribing", desc: "สั่งใช้ยาคลาดเคลื่อน (คำสั่งใช้ยาของแพทย์)" },
-  { key: "Transcribing", desc: "คัดลอก/คีย์คำสั่งใช้ยาคลาดเคลื่อน" },
-  { key: "Dispensing", desc: "จ่ายยาคลาดเคลื่อน (หยิบ/นับ/จ่ายผิด)" },
-  { key: "Administration", desc: "บริหารยาคลาดเคลื่อน (ให้ยาผิดวิธี/เวลา)" },
+  { key: "Prescribing", th: "สั่งยา", desc: "สั่งใช้ยาคลาดเคลื่อน (คำสั่งใช้ยาของแพทย์)" },
+  { key: "Transcribing", th: "คัดลอก", desc: "คัดลอก/คีย์คำสั่งใช้ยาคลาดเคลื่อน" },
+  { key: "Pre-dispensing", th: "จัดยา", desc: "จัดยาคลาดเคลื่อน — หยิบ/นับ/จัดยา (เช่น หยิบผิดชนิด LASA, จัดจำนวนผิด)" },
+  { key: "Dispensing", th: "จ่ายยา", desc: "จ่าย/ส่งมอบยาคลาดเคลื่อน (จ่ายผิดคน, ให้คำแนะนำผิด)" },
+  { key: "Administration", th: "บริหารยา", desc: "บริหารยาคลาดเคลื่อน (ให้ยาผิดวิธี/เวลา)" },
 ];
 
 export const SEVERITY: CodeDesc[] = [

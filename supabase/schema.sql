@@ -21,7 +21,7 @@ create table if not exists public.incidents (
 
   -- ---------- เฉพาะ Med Error ----------
   location           text,                                     -- จุดที่พบ (OPD ทั่วไป / OPD NCD)
-  error_type         text,                                     -- Prescribing / Transcribing / Dispensing / Administration
+  error_type         jsonb default '[]'::jsonb,                 -- ประเภท (array เลือกหลายอัน): Prescribing / Transcribing / Pre-dispensing / Dispensing / Administration
   error_nature       jsonb default '[]'::jsonb,                -- ลักษณะ (array): ผิดคน/ผิดชนิดยา/ผิดความแรง/ผิดขนาด ฯลฯ
   error_nature_other text,                                     -- ข้อความเมื่อเลือก "อื่น ๆ"
   severity           text check (severity is null or severity in ('A','B','C','D','E','F','G','H','I')), -- NCC MERP
