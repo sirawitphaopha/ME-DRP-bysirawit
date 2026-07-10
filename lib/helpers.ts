@@ -47,6 +47,7 @@ export function emptyForm(defaultReporter: string, keep?: Partial<Pick<FormState
     occurred_time: nowTime(),
     hn: keep.hn || "",
     location: LOCATIONS[0],
+    an: "",
     error_type: [],
     error_nature: [],
     error_nature_other: "",

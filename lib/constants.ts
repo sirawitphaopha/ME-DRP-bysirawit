@@ -1,6 +1,6 @@
 // ค่าคงที่ทั้งหมด — พอร์ตตรงจากดีไซน์ DC (Med Error DRP.dc.html)
 
-export const APP_VERSION = "0.9.3.0";
+export const APP_VERSION = "0.9.4.0";
 
 export interface KeyDesc {
   key: string;
@@ -52,7 +52,9 @@ export const OUTCOMES: Outcome[] = [
   { key: "Pending", label: "รอผล" },
 ];
 
-export const LOCATIONS = ["OPD ทั่วไป", "OPD NCD"];
+export const LOCATIONS = ["ห้องยา OPD ทั่วไป", "ห้องยา OPD NCD", "ห้องยา IPD"];
+// จุดที่พบแบบผู้ป่วยใน — เลือกแล้วต้องกรอกเลขที่ผู้ป่วยใน (AN) เพิ่ม
+export const IPD_LOCATION = "ห้องยา IPD";
 
 export const INTERVENTIONS = [
   "ปรึกษาแพทย์ผู้สั่งใช้",

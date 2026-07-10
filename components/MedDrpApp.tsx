@@ -9,6 +9,7 @@ import {
   ERROR_TYPES,
   INTERVENTIONS,
   LOCATIONS,
+  IPD_LOCATION,
   OUTCOMES,
   REPORTERS,
   SEVERITY,
@@ -60,6 +61,7 @@ interface AppState {
   showHistory: boolean;
   kpiAnim: number[];
   showSevLegend: boolean;
+  showNatureLegend: boolean;
   errors: Record<string, boolean>;
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
@@ -140,6 +142,7 @@ export default function MedDrpApp() {
     showHistory: false,
     kpiAnim: [0, 0, 0, 0],
     showSevLegend: false,
+    showNatureLegend: false,
     errors: {},
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
@@ -439,14 +442,24 @@ export default function MedDrpApp() {
     const f = stateRef.current.form,
       type = stateRef.current.type;
     const errs: Record<string, boolean> = {};
+    // ---- ช่องบังคับร่วม (ทั้ง Med + DRP) ----
+    if (!String(f.hn || "").trim()) errs.hn = true;
+    if (!f.occurred_at) errs.occurred_at = true;
+    if (!f.location) errs.location = true;
+    if (f.location === IPD_LOCATION && !String(f.an || "").trim()) errs.an = true; // IPD → ต้องมี AN
+    if (!f.reporter) errs.reporter = true;
     if (type === "med") {
       if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
+      if (!(Array.isArray(f.error_nature) ? f.error_nature.length : f.error_nature)) errs.error_nature = true; // ลักษณะความคลาดเคลื่อน
       if (!f.severity) errs.severity = true;
+      if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเหตุการณ์
     } else {
       if (!f.drp_type) errs.drp_type = true;
       if (!f.outcome) errs.outcome = true;
+      if (!String(f.cause || "").trim()) errs.cause = true; // สาเหตุของปัญหา
+      if (!f.intervention) errs.intervention = true; // การ Intervention
+      if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเพิ่มเติม
     }
-    if (!f.reporter) errs.reporter = true;
     if (Object.keys(errs).length) {
       setState({ errors: errs });
       flash("กรุณากรอกช่องที่จำเป็น (ไฮไลต์สีแดง)");
@@ -535,6 +548,7 @@ export default function MedDrpApp() {
       "shift",
       "hn",
       "location",
+      "an",
       "error_type",
       "error_nature",
       "error_nature_other",
@@ -868,6 +882,7 @@ export default function MedDrpApp() {
           ["เวลาที่พบ", tval],
           ["HN ผู้ป่วย", dt2.hn],
           ["จุดที่พบ", dt2.location],
+          ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
           ["ประเภท Error", natureText(dt2.error_type)],
           ["ลักษณะความคลาดเคลื่อน", natureDisp],
           ["ระดับความรุนแรง (NCC MERP)", dt2.severity],
@@ -881,6 +896,8 @@ export default function MedDrpApp() {
           ["วันที่", dt2.occurred_at],
           ["เวลาที่พบ", tval],
           ["HN ผู้ป่วย", dt2.hn],
+          ["จุดที่พบ", dt2.location],
+          ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
           ["ประเภทปัญหา DRP", drpDisp],
           ["ยาที่เกี่ยวข้อง", drugDisp],
           ["ธงเตือนยา", flags],
@@ -1137,7 +1154,7 @@ export default function MedDrpApp() {
             {/* date + time */}
             <div style={css("display:flex;gap:12px;margin-bottom:16px;" + (isMobile ? "flex-direction:column;gap:14px;" : ""))}>
               <div style={css("flex:1;min-width:0;")}>
-                <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>วันที่เกิดเหตุ</label>
+                <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>วันที่เกิดเหตุ <span style={css("color:#DC2626;")}>*</span></label>
                 <div style={css("position:relative;")}>
                   <HInput
                     type="date"
@@ -1178,19 +1195,49 @@ export default function MedDrpApp() {
               </div>
             </div>
 
-            {/* HN */}
+            {/* จุดที่พบ (มาก่อน HN — เลือก IPD แล้วจึงกรอก AN ได้) */}
+            {renderLocationField()}
+
+            {/* HN + AN แถวเดียว · AN กดได้เมื่อจุดที่พบ = ห้องยา IPD */}
             <div style={css("margin-bottom:16px;")}>
-              <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>HN ผู้ป่วย</label>
-              <HInput
-                value={f.hn}
-                onChange={(e) => setField("hn", e.target.value.replace(/\D/g, ""))}
-                placeholder="เช่น 1234567"
-                type="tel"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                base={INPUT_BASE}
-                focus={INPUT_FOCUS}
-              />
+              <div style={css("display:flex;gap:10px;")}>
+                <div style={css("flex:1;min-width:0;")}>
+                  <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+                    HN ผู้ป่วย <span style={css("color:#DC2626;")}>*</span>
+                  </label>
+                  <HInput
+                    value={f.hn}
+                    onChange={(e) => setField("hn", e.target.value.replace(/\D/g, ""))}
+                    placeholder="เช่น 1234567"
+                    type="tel"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    base={INPUT_BASE}
+                    focus={INPUT_FOCUS}
+                  />
+                </div>
+                <div style={css("flex:1;min-width:0;")}>
+                  <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+                    AN <span style={css("color:#94A3B8;font-weight:400;")}>ผู้ป่วยใน</span>
+                    {f.location === IPD_LOCATION && <span style={css("color:#DC2626;")}> *</span>}
+                  </label>
+                  <HInput
+                    value={f.an}
+                    onChange={(e) => setField("an", e.target.value.replace(/[^0-9-]/g, ""))}
+                    placeholder={f.location === IPD_LOCATION ? "เช่น 69-01234" : "เลือกห้องยา IPD ก่อน"}
+                    inputMode="numeric"
+                    disabled={f.location !== IPD_LOCATION}
+                    base={INPUT_BASE + (f.location !== IPD_LOCATION ? "background:#F1F5F4;color:#94A3B8;cursor:not-allowed;" : "")}
+                    focus={INPUT_FOCUS}
+                  />
+                </div>
+              </div>
+              {S.errors.hn && (
+                <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอก HN ผู้ป่วย</div>
+              )}
+              {S.errors.an && (
+                <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกเลขที่ผู้ป่วยใน (AN)</div>
+              )}
             </div>
 
             {isMed && renderMedFields()}
@@ -1301,29 +1348,38 @@ export default function MedDrpApp() {
     );
   }
 
+  // จุดที่พบ — ใช้ร่วมทั้ง Med และ DRP (วางก่อน HN · เลือก IPD แล้วจึงกรอก AN ได้)
+  function renderLocationField() {
+    return (
+      <div style={css("margin-bottom:16px;")}>
+        <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+          จุดที่พบ <span style={css("color:#DC2626;")}>*</span>
+        </label>
+        <HSelect
+          value={f.location}
+          onChange={(e) => setField("location", e.target.value)}
+          base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;"
+          focus={INPUT_FOCUS}
+        >
+          {LOCATIONS.map((loc) => (
+            <option key={loc} value={loc}>
+              {loc}
+            </option>
+          ))}
+        </HSelect>
+        {S.errors.location && (
+          <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกจุดที่พบ</div>
+        )}
+      </div>
+    );
+  }
+
   function renderMedFields() {
     const natureSel = ERROR_NATURE.filter((n) => Array.isArray(f.error_nature) && f.error_nature.includes(n.key));
     const hasNatureSel = Array.isArray(f.error_nature) && f.error_nature.length > 0;
     const showNatureOther = Array.isArray(f.error_nature) && f.error_nature.includes("อื่น ๆ");
     return (
       <div>
-        {/* จุดที่พบ */}
-        <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>จุดที่พบ</label>
-          <HSelect
-            value={f.location}
-            onChange={(e) => setField("location", e.target.value)}
-            base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;"
-            focus={INPUT_FOCUS}
-          >
-            {LOCATIONS.map((loc) => (
-              <option key={loc} value={loc}>
-                {loc}
-              </option>
-            ))}
-          </HSelect>
-        </div>
-
         {/* ประเภท Error */}
         <div style={css("margin-bottom:16px;")}>
           <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
@@ -1386,9 +1442,18 @@ export default function MedDrpApp() {
 
         {/* ลักษณะความคลาดเคลื่อน (multi) */}
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
-            ลักษณะความคลาดเคลื่อน <span style={css("color:#94A3B8;font-weight:400;")}>ผิดอะไร · เลือกได้หลายอัน</span>
-          </label>
+          <div style={css("display:flex;align-items:center;margin-bottom:8px;gap:8px;")}>
+            <label style={css("font-size:13px;font-weight:600;color:#475569;")}>
+              ลักษณะความคลาดเคลื่อน <span style={css("color:#DC2626;")}>*</span> <span style={css("color:#94A3B8;font-weight:400;")}>ผิดอะไร · เลือกได้หลายอัน</span>
+            </label>
+            <HButton
+              onClick={() => setState((st) => ({ showNatureLegend: !st.showNatureLegend }))}
+              base="margin-left:auto;border:1px solid #F6D89A;background:#FEF7EC;color:#B45309;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;"
+              hover="background:#FDEFD6"
+            >
+              ⓘ {S.showNatureLegend ? "ซ่อนความหมาย" : "ดูความหมาย"}
+            </HButton>
+          </div>
           <div style={css("display:flex;flex-wrap:wrap;gap:8px;")}>
             {ERROR_NATURE.map((n) => (
               <button
@@ -1428,6 +1493,30 @@ export default function MedDrpApp() {
               base="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
               focus={INPUT_FOCUS}
             />
+          )}
+          {S.errors.error_nature && (
+            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกลักษณะความคลาดเคลื่อน</div>
+          )}
+          {S.showNatureLegend && (
+            <div
+              style={css(
+                "margin-top:10px;background:#FBFDFC;border:1px solid #E3EFEC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;"
+              )}
+            >
+              <div style={css("font-size:12.5px;font-weight:700;color:#0B655D;")}>ความหมายลักษณะความคลาดเคลื่อน</div>
+              {ERROR_NATURE.map((n) => (
+                <div key={n.key} style={css("display:flex;gap:10px;align-items:flex-start;")}>
+                  <span
+                    style={css(
+                      "flex:none;background:#F5A623;color:#3B2200;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;"
+                    )}
+                  >
+                    {n.key}
+                  </span>
+                  <span style={css("font-size:12.5px;color:#475569;line-height:1.45;padding-top:2px;")}>{n.desc}</span>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
@@ -1518,7 +1607,9 @@ export default function MedDrpApp() {
 
         {/* รายละเอียด */}
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>รายละเอียดเหตุการณ์</label>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+            รายละเอียดเหตุการณ์ <span style={css("color:#DC2626;")}>*</span>
+          </label>
           <HTextarea
             value={f.detail}
             onChange={(e) => setField("detail", e.target.value)}
@@ -1527,6 +1618,9 @@ export default function MedDrpApp() {
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
             focus={INPUT_FOCUS}
           />
+          {S.errors.detail && (
+            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกรายละเอียดเหตุการณ์</div>
+          )}
         </div>
         <div style={css("margin-bottom:18px;")}>
           <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>การแก้ไข / จัดการ</label>
@@ -1593,7 +1687,9 @@ export default function MedDrpApp() {
         </div>
 
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>สาเหตุของปัญหา</label>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+            สาเหตุของปัญหา <span style={css("color:#DC2626;")}>*</span>
+          </label>
           <HTextarea
             value={f.cause}
             onChange={(e) => setField("cause", e.target.value)}
@@ -1602,10 +1698,13 @@ export default function MedDrpApp() {
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
             focus={INPUT_FOCUS}
           />
+          {S.errors.cause && (
+            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกสาเหตุของปัญหา</div>
+          )}
         </div>
 
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>การ Intervention</label>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>การ Intervention <span style={css("color:#DC2626;")}>*</span></label>
           <HSelect
             value={f.intervention}
             onChange={(e) => setField("intervention", e.target.value)}
@@ -1641,7 +1740,9 @@ export default function MedDrpApp() {
         </div>
 
         <div style={css("margin-bottom:18px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>รายละเอียดเพิ่มเติม</label>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+            รายละเอียดเพิ่มเติม <span style={css("color:#DC2626;")}>*</span>
+          </label>
           <HTextarea
             value={f.detail}
             onChange={(e) => setField("detail", e.target.value)}
@@ -1650,6 +1751,9 @@ export default function MedDrpApp() {
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
             focus={INPUT_FOCUS}
           />
+          {S.errors.detail && (
+            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกรายละเอียดเพิ่มเติม</div>
+          )}
         </div>
       </div>
     );
@@ -2353,6 +2457,12 @@ export default function MedDrpApp() {
                 ))}
               </select>
             </div>
+            {ef.location === IPD_LOCATION && (
+              <div>
+                <label style={editLabel}>AN (เลขที่ผู้ป่วยใน)</label>
+                <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
+              </div>
+            )}
             <div>
               <label style={editLabel}>ประเภท Error</label>
               <select value={efErrTypeVal} onChange={(e) => setEf("error_type", e.target.value ? [e.target.value] : [])} style={css(editInputSelect)}>
@@ -2389,6 +2499,22 @@ export default function MedDrpApp() {
           </div>
         ) : (
           <div style={css("display:flex;flex-direction:column;gap:13px;")}>
+            <div>
+              <label style={editLabel}>จุดที่พบ</label>
+              <select value={ef.location || ""} onChange={(e) => setEf("location", e.target.value)} style={css(editInputSelect)}>
+                {LOCATIONS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {ef.location === IPD_LOCATION && (
+              <div>
+                <label style={editLabel}>AN (เลขที่ผู้ป่วยใน)</label>
+                <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
+              </div>
+            )}
             <div>
               <label style={editLabel}>ประเภทปัญหา DRP</label>
               <select value={ef.drp_type || ""} onChange={(e) => setEf("drp_type", e.target.value)} style={css(editInputSelect)}>

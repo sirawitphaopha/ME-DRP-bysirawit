@@ -17,6 +17,7 @@ const COLS = [
   "attachment",
   "detail",
   "location",
+  "an",
   "error_type",
   "error_nature",
   "error_nature_other",
@@ -46,6 +47,12 @@ export function toRow(o: Incident): Record<string, unknown> {
   }
   if (r.error_type !== undefined && !Array.isArray(r.error_type)) {
     r.error_type = r.error_type ? [r.error_type] : [];
+  }
+  // severity/outcome มี CHECK constraint (severity ∈ A–I, outcome ∈ Accepted/Rejected/Pending)
+  // ฟอร์มส่ง "" มาเมื่อไม่ได้กรอก (Med Error ไม่มีช่อง outcome / DRP ไม่มีช่อง severity)
+  // ค่าว่าง "" ไม่ผ่าน constraint → ต้องแปลงเป็น null ก่อนส่ง Supabase ไม่งั้นโดนตีกลับ 400
+  for (const c of ["severity", "outcome"] as const) {
+    if (r[c] === "") r[c] = null;
   }
   return r;
 }

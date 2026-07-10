@@ -19,6 +19,7 @@ export interface Incident {
 
   // Med Error
   location?: string;
+  an?: string; // เลขที่ผู้ป่วยใน (Admission Number) — ใช้เมื่อจุดที่พบ = ห้องยา IPD (มีได้ทั้ง Med/DRP)
   error_type?: string[] | string; // array (เลือกหลายอันได้) หรือ string (ข้อมูลเก่า)
   error_nature?: string[] | string; // array (ใหม่) หรือ string (ข้อมูลเก่า)
   error_nature_other?: string;
@@ -48,6 +49,7 @@ export interface FormState {
   occurred_time: string;
   hn: string;
   location: string;
+  an: string;
   error_type: string[];
   error_nature: string[];
   error_nature_other: string;
