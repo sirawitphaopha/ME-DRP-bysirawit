@@ -59,9 +59,10 @@ export function toRow(o: Incident): Record<string, unknown> {
 
 // config จาก env (ค่า default ตอน build)
 export function envConfig(): SupabaseCfg {
+  // fallback = ค่า Supabase จริง (คีย์ publishable · เปิดเผยได้ · คุมด้วย RLS) เผื่อ NEXT_PUBLIC ไม่ถูก inline เข้า client
   return {
-    url: process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+    url: process.env.NEXT_PUBLIC_SUPABASE_URL || "https://ryewggkhunpuipgkgbfv.supabase.co",
+    key: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "sb_publishable_cSCNAQextpTq9SzUt189uw_lemUK6Ah",
   };
 }
 

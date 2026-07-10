@@ -42,7 +42,7 @@ const ORG_NAME = "ห้องยา รพ.ปรางค์กู่";
 const DEFAULT_REPORTER = "";
 const START_VIEW: ViewName = "form";
 
-const REC_KEY = "meddrp_records_v4"; // v4: เดโม 10 เคส + ชื่อผู้รายงานจริง (bump เพื่อล้าง cache 100 เคสเก่า)
+const REC_KEY = "meddrp_records_v6"; // v6: ล้าง demo ที่ค้างในเครื่อง (เอา seed ออกจากโค้ดแล้ว · ข้อมูลจริงดึงจาก Supabase)
 const CFG_KEY = "meddrp_cfg";
 const DRAFT_KEY = "meddrp_draft";
 
@@ -291,13 +291,7 @@ export default function MedDrpApp() {
     try {
       local = JSON.parse(localStorage.getItem(REC_KEY) || "null");
     } catch {}
-    if ((!local || !local.length) && !isConfigured(cfg)) {
-      // โหมด demo ล้วน: ยังไม่ตั้งค่า Supabase → สร้างเดโม 10 เคส
-      local = seed();
-      try {
-        localStorage.setItem(REC_KEY, JSON.stringify(local));
-      } catch {}
-    }
+    // เอา demo seed ออก — ผู้ใช้จริงไม่ต้องมีข้อมูลปลอม (ถ้ายังไม่เชื่อม Supabase = หน้ารายการว่าง)
     if (local && local.length) setState({ records: local });
     // 2) ถ้าตั้งค่า Supabase แล้ว → ดึงข้อมูลจริงมาทับเบื้องหลัง
     if (isConfigured(cfg)) {
