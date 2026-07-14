@@ -96,6 +96,9 @@ interface AppState {
   hardTarget: Incident | null; // รายงานที่กำลังจะลบถาวร (จากถังขยะ)
   hardInput: string; // ข้อความยืนยันลบถาวร (ต้องพิมพ์ HN ของเคสให้ตรง)
   trashBusy: boolean; // กำลังทำงานกับถังขยะ (กันกดซ้ำ)
+  result: "ok" | "fail" | null; // หน้าผลการส่งเต็มจอหลังกดบันทึก (null = ไม่โชว์)
+  resultRec: Incident | null; // รายงานที่รอ "ส่งอีกครั้ง" จากหน้าผล (กรณี fail)
+  resending: boolean; // กำลังกด "ส่งอีกครั้ง" จากหน้าผล
   rf: RecordFilter;
   detail: Incident | null;
   editMode: boolean;
@@ -199,6 +202,9 @@ export default function MedDrpApp() {
     hardTarget: null,
     hardInput: "",
     trashBusy: false,
+    result: null,
+    resultRec: null,
+    resending: false,
     rf: emptyFilter(),
     detail: null,
     editMode: false,
@@ -663,8 +669,48 @@ export default function MedDrpApp() {
     reader.readAsDataURL(file);
   };
 
+  // ---------- เสียง + สั่นเตือน (ตอนส่งไม่สำเร็จ) ----------
+  // iOS ต้องปลดล็อกเสียง "ในจังหวะกดปุ่ม" (user gesture) → เรียก unlockAudio() ตอนต้น save/resend
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const unlockAudio = () => {
+    try {
+      const w = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
+      const Ctor = w.AudioContext || w.webkitAudioContext;
+      if (!Ctor) return;
+      if (!audioCtxRef.current) audioCtxRef.current = new Ctor();
+      if (audioCtxRef.current.state === "suspended") audioCtxRef.current.resume();
+    } catch {}
+  };
+  const alertFail = () => {
+    // สั่น — ได้เฉพาะ Android (iOS/Safari ไม่รองรับ navigator.vibrate)
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([220, 90, 220]);
+    } catch {}
+    // เสียงบี๊บ 2 จังหวะ (สังเคราะห์เอง ไม่ต้องมีไฟล์เสียง)
+    try {
+      const ctx = audioCtxRef.current;
+      if (!ctx) return;
+      if (ctx.state === "suspended") ctx.resume();
+      const now = ctx.currentTime;
+      [0, 0.28].forEach((t) => {
+        const osc = ctx.createOscillator();
+        const g = ctx.createGain();
+        osc.type = "square";
+        osc.frequency.value = 640;
+        g.gain.setValueAtTime(0.0001, now + t);
+        g.gain.exponentialRampToValueAtTime(0.22, now + t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.2);
+        osc.connect(g);
+        g.connect(ctx.destination);
+        osc.start(now + t);
+        osc.stop(now + t + 0.22);
+      });
+    } catch {}
+  };
+
   // ---------- save new ----------
   const save = async () => {
+    unlockAudio(); // ปลดล็อกเสียงในจังหวะกดปุ่ม (เผื่อผลออกมาไม่สำเร็จ จะได้มีเสียงเตือน)
     const f = stateRef.current.form,
       type = stateRef.current.type;
     const errs: Record<string, boolean> = {};
@@ -712,11 +758,32 @@ export default function MedDrpApp() {
     if (isConfigured(cfg)) sent = await pushIncident(cfg, rec);
     setState({ records: recs, saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }) });
     if (sent) {
-      flash("บันทึกและส่งขึ้นระบบเรียบร้อย ✓");
+      // เปลี่ยนเป็นหน้าผล "ส่งสำเร็จ" เต็มจอ
+      setState({ result: "ok", resultRec: null });
     } else {
-      // ส่งไม่สำเร็จ → เข้าคิวลองส่งใหม่อัตโนมัติ + เตือนตรง ๆ (แถบเตือนด้านบนจะโชว์จาก state.pending)
+      // ส่งไม่สำเร็จ → เข้าคิวลองส่งใหม่อัตโนมัติ + หน้าผล "ส่งไม่สำเร็จ" (ตัวโต ไม่หายเอง) + สั่น/เสียงเตือน
       enqueuePending([rec]);
-      flash("บันทึกลงเครื่องแล้ว แต่ยังไม่ขึ้นระบบส่วนกลาง");
+      setState({ result: "fail", resultRec: rec });
+      alertFail();
+    }
+  };
+
+  // กด "ส่งอีกครั้ง" จากหน้าผลที่ส่งไม่สำเร็จ — ส่งเคสเดิมซ้ำ (id เดิม = idempotent)
+  const resendResult = async () => {
+    const rec = stateRef.current.resultRec;
+    if (!rec || stateRef.current.resending) return;
+    unlockAudio();
+    setState({ resending: true });
+    const cfg = stateRef.current.cfg;
+    const ok = isConfigured(cfg) ? await pushIncident(cfg, rec) : true;
+    if (ok) {
+      const left = readList(PENDING_KEY).filter((r) => r.id !== rec.id);
+      writeList(PENDING_KEY, left);
+      setState({ pending: left, result: "ok", resultRec: null, resending: false });
+      refreshRecords();
+    } else {
+      setState({ resending: false });
+      alertFail(); // ยังไม่ไป → เตือนอีกรอบ
     }
   };
 
@@ -1479,6 +1546,9 @@ export default function MedDrpApp() {
           );
         })()}
 
+      {/* หน้าผลการส่งเต็มจอ (สำเร็จ / ไม่สำเร็จ) — คลุมทั้งแอป */}
+      {S.result && renderResult()}
+
       {S.toast && (
         <div
           style={css(
@@ -1553,6 +1623,109 @@ export default function MedDrpApp() {
   }
 
   // ---------------- FORM ----------------
+  // โลโก้ Google Chrome (inline SVG · 3 พู วงแหวนขาว + แกนน้ำเงิน) — ใช้ในหน้าผล "ส่งไม่สำเร็จ"
+  function chromeLogo(size: number) {
+    return (
+      <svg width={size} height={size} viewBox="0 0 48 48" style={{ flex: "none" }} aria-hidden="true">
+        <path fill="#EA4335" d="M24 24 L7.42 12.82 A20 20 0 0 1 40.58 12.82 Z" />
+        <path fill="#FBBC04" d="M24 24 L41.98 15.23 A20 20 0 0 1 25.40 43.95 Z" />
+        <path fill="#34A853" d="M24 24 L22.60 43.95 A20 20 0 0 1 6.02 15.23 Z" />
+        <circle cx="24" cy="24" r="9.5" fill="#fff" />
+        <circle cx="24" cy="24" r="7.5" fill="#4285F4" />
+      </svg>
+    );
+  }
+
+  // หน้าผลการส่งเต็มจอ (สำเร็จ / ไม่สำเร็จ) — เปลี่ยนเต็มหน้าจอหลังกดบันทึก
+  function renderResult() {
+    const ok = S.result === "ok";
+    return (
+      <div
+        style={css(
+          "position:fixed;inset:0;z-index:90;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 26px;background:" +
+            (ok ? "linear-gradient(180deg,#F3FAF8,#EAF6F2)" : "linear-gradient(180deg,#FEF2F2,#FDE7E7)") +
+            ";"
+        )}
+      >
+        {ok ? (
+          <>
+            <div
+              style={css(
+                "width:108px;height:108px;border-radius:999px;background:#E4F5EF;display:flex;align-items:center;justify-content:center;margin-bottom:22px;box-shadow:0 0 0 10px rgba(16,161,140,.10);"
+              )}
+            >
+              <span style={css("font-size:60px;color:#12A093;line-height:1;")}>✓</span>
+            </div>
+            <div style={css("font-size:27px;font-weight:800;color:#0B655D;letter-spacing:-.3px;")}>ส่งสำเร็จ</div>
+            <div style={css("font-size:14px;color:#5B7A73;margin-top:8px;line-height:1.55;")}>บันทึกและส่งขึ้นระบบส่วนกลางเรียบร้อย</div>
+            <div style={css("width:100%;max-width:340px;margin-top:30px;display:flex;flex-direction:column;gap:11px;")}>
+              <HButton
+                onClick={() => setState({ result: null, resultRec: null })}
+                base="border:none;border-radius:13px;font-size:16px;font-weight:700;padding:15px;cursor:pointer;background:#0F8A80;color:#fff;box-shadow:0 10px 22px -8px rgba(15,138,128,.6);"
+                hover="background:#0B655D"
+              >
+                ส่งรายงานใหม่
+              </HButton>
+              <HButton
+                onClick={() => setState({ result: null, resultRec: null, view: "records" })}
+                base="background:transparent;border:none;color:#0B655D;font-size:14.5px;font-weight:600;padding:11px;border-radius:11px;cursor:pointer;"
+                hover="background:rgba(15,138,128,.08)"
+              >
+                ดูรายงานทั้งหมด
+              </HButton>
+            </div>
+          </>
+        ) : (
+          <>
+            <div
+              style={css(
+                "width:108px;height:108px;border-radius:999px;background:#FBDCDC;display:flex;align-items:center;justify-content:center;margin-bottom:20px;box-shadow:0 0 0 10px rgba(220,38,38,.10);"
+              )}
+            >
+              <span style={css("font-size:58px;color:#DC2626;line-height:1;")}>✕</span>
+            </div>
+            <div style={css("font-size:30px;font-weight:800;color:#B91C1C;letter-spacing:-.4px;")}>ส่งไม่สำเร็จ</div>
+            <div style={css("font-size:14px;color:#9B4444;margin-top:9px;line-height:1.55;")}>
+              ข้อมูลถูกเก็บไว้ในเครื่องนี้แล้ว
+              <br />
+              แต่ยังไม่ขึ้นระบบส่วนกลาง
+            </div>
+            {/* คำแนะนำ Chrome ตัวใหญ่ + โลโก้ Chrome */}
+            <div
+              style={css(
+                "margin-top:20px;width:100%;max-width:380px;box-sizing:border-box;background:#FEF3E5;border:1.5px solid #F5D6A6;border-radius:14px;padding:15px 18px;display:flex;align-items:center;gap:13px;"
+              )}
+            >
+              {chromeLogo(38)}
+              <div style={css("text-align:left;font-size:15.5px;font-weight:700;color:#B45309;line-height:1.45;")}>
+                หากยังส่งไม่ได้ แนะนำให้เปิดผ่าน Google Chrome
+              </div>
+            </div>
+            <div style={css("width:100%;max-width:340px;margin-top:24px;display:flex;flex-direction:column;gap:11px;")}>
+              <HButton
+                onClick={() => resendResult()}
+                base={
+                  "border:none;border-radius:13px;font-size:16px;font-weight:700;padding:15px;cursor:pointer;background:#F5A623;color:#3B2200;box-shadow:0 10px 22px -8px rgba(245,166,35,.6);" +
+                  (S.resending ? "opacity:.6;pointer-events:none;" : "")
+                }
+                hover="background:#E4980E"
+              >
+                {S.resending ? "กำลังส่ง…" : "ส่งอีกครั้ง"}
+              </HButton>
+              <HButton
+                onClick={() => setState({ result: null, resultRec: null })}
+                base="background:#fff;border:1.5px solid #F3C5C2;color:#B91C1C;font-size:14.5px;font-weight:600;padding:12px;border-radius:13px;cursor:pointer;"
+                hover="background:#FDECEC"
+              >
+                เก็บไว้ส่งทีหลัง
+              </HButton>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   // ช่องเลือกระดับความรุนแรง A–I (NCC MERP) — ใช้ร่วมทั้ง Med Error และ DRP (บังคับกรอกทั้งคู่)
   function renderSeverityField() {
     return (
