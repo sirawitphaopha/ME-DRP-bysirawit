@@ -604,6 +604,8 @@ export default function MedDrpApp() {
   // เลือกยาจากรายการ suggest → ใส่เป็นข้อความบรรทัดเดียว + ปิด suggest
   const pickDrug = (i: number, d: Drug) => {
     setDrugAt(i, drugFlatLine(d));
+    // ยา HAD (High Alert Drug) จากคลังยา → ติดธง High-alert ให้อัตโนมัติ (ผู้ใช้ปลดเองได้ถ้าไม่ต้องการ)
+    if (d.had) setField("high_alert", true);
     setState({ drugSug: null });
   };
   const removeDrug = (i: number) => {
