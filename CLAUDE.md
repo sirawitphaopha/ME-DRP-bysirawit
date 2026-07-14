@@ -31,7 +31,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.7.2) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.7.3) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -94,6 +94,8 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 - **หน้าต่างรายละเอียด — ห้ามปิดด้วย backdrop (v0.9.7.2):** `renderDetailModal` · คลิกพื้นที่ว่าง = **ไม่ปิดทุกกรณี** (โหมดแก้ไขเด้ง toast เตือน) · ปุ่ม `×` ขณะ `editMode` → ป๊อปยืนยัน `confirmDiscard` ("ปิดโดยไม่บันทึกการแก้ไข" · [ทิ้งการแก้ไข แดง ซ้าย][กลับไปแก้ต่อ ขวา] · คลิกนอกป๊อปยืนยันก็ไม่ปิด)
 - **กราฟแยกตามผู้รายงาน (v0.9.7.2):** `reporterBreak` ในหน้า Dashboard — เรียงมากไปน้อย · `REPORTER_COLORS` 8 สีสด (ชมพูแดง/ส้ม/เหลือง/เขียว/ฟ้า/น้ำเงิน/ม่วง/บานเย็น · **ห้ามใช้เทลของธีม** พี่กันสั่ง) วนสีตาม index
 - **คำว่า "รายการ" → "รายงาน" (v0.9.7.2)** ในเมนูและหัวข้อหน้า (เมนู `records`, "รายงานทั้งหมด", "รายงานล่าสุด", "ไม่พบรายงาน…")
+- **🚨 แก้บั๊ก cross-browser + ยืนยันการส่ง (v0.9.7.3):** ต้นตอ = `id` เดิมสร้างด้วย `crypto.randomUUID ? ... : "r"+Date.now()` — เบราว์เซอร์ที่ไม่มี `randomUUID` (Safari เก่า / ไม่ใช่ https / เว็บวิว) ได้ค่าไม่ใช่ uuid → คอลัมน์ `id` ชนิด uuid ตีกลับ → `save` ดัก `catch {}` เงียบ ขึ้น "บันทึกแล้ว" หลอก → **ข้อมูลเข้าแค่ localStorage ไม่ขึ้นคลังกลาง** · แก้: `helpers.uuid()` สร้าง UUID v4 เองได้ทุกเบราว์เซอร์ + `helpers.isUuid()` · `save` ใช้ `data.pushIncident()` (คืน boolean + timeout 12s + มอง 23505 = สำเร็จ) → สำเร็จค่อยขึ้น "บันทึกและส่งขึ้นระบบเรียบร้อย ✓" ไม่งั้นเข้าคิว `PENDING_KEY` (`meddrp_pending_v1`) + แถบเตือนเหลืองบนสุด (แนะนำ Chrome) · `flushPending()` ส่งซ้ำตอน mount/online/visibilitychange (ออก uuid ใหม่ให้ id เก่าที่ผิด) · `loadRecords`/`refreshRecords` เปลี่ยนจาก "ทับ" เป็น **"รวม"** (คง localOnly ที่ `!isUuid(id)||pending` ไว้บนสุด → กู้รายงานเก่าที่หาย + ไม่ดึงเคสในถังขยะกลับ)
+- **ลบรายงาน 2 ชั้น + ถังขยะ (v0.9.7.3):** คอลัมน์ `deleted_at timestamptz` (null=ใช้งาน / มีค่า=ถังขยะ) · migration `0007_soft_delete.sql` (เพิ่มคอลัมน์ + index + RLS policy **delete** เดิมไม่มี · **applied ขึ้น Supabase แล้ว**) · `data.ts`: `fetchIncidents` กรอง `.is("deleted_at",null)` · `fetchDeletedIncidents/softDeleteIncident/restoreIncident/hardDeleteIncident` · UI: ปุ่ม `🗑 ลบรายงาน` ในหน้ารายละเอียด (จาง) → ป๊อปชั้น 1 `askDelete` "ย้ายไปถังขยะ" (amber · `doSoftDelete`) · หน้า `renderManage` (ตั้งค่า) มีส่วนถังขยะ (`state.trash` · `loadTrash` ตอน mount+เข้าหน้า) ปุ่มกู้คืน (`doRestore`)/ลบถาวร → ป๊อปชั้น 2 `hardTarget` (แดง · **ต้องพิมพ์ HN ให้ตรง** ปุ่มถึงกด · ไม่มี HN ให้พิมพ์ "ลบถาวร" · `doHardDelete`) · รายงานในถังขยะไม่นับใน Dashboard (fetch กรองออกแล้ว)
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)
