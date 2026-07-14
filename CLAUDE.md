@@ -31,7 +31,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.8.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.8.1) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -100,6 +100,11 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
   - **DRP มีช่องระดับความรุนแรง A–I** (บังคับกรอกทั้ง ME+DRP · ย้ายเงื่อนไข `!f.severity` ขึ้นส่วนบังคับร่วมใน `save`) · แยกบล็อกความรุนแรงเป็นฟังก์ชันร่วม **`renderSeverityField()`** เรียกทั้งฟอร์ม ME (ตำแหน่งเดิม) และ DRP (ถัดจาก "รายละเอียดเหตุการณ์/สาเหตุ") · โหมดแก้ไข DRP + หน้ารายละเอียด + ประวัติ + หน้ารายงาน + ตาราง Dashboard โชว์ severity ของ DRP ด้วย (เดิม gate `type==="med"` ออกแล้ว) · เหตุผล: ME เป็นซับเซ็ตของ DRP ควรให้คะแนนความรุนแรงได้เหมือนกัน
   - **เลือกยา HAD → ติดธง High-alert อัตโนมัติ:** `pickDrug()` เช็ค `d.had === true` แล้ว `setField("high_alert", true)` (ผู้ใช้ปลดเองได้ · ไม่ auto-off กันลบค่าที่ตั้งใจติด) · คลังยา `drugs` มีคอลัมน์ `had` อยู่แล้ว
   - **Dashboard กราฟความรุนแรง A–I นับรวม DRP:** `bySev` เอา `.filter(r => r.type === "med")` ออก → นับทุกเคสที่มี `severity` (respect ตัวกรอง dashType อยู่แล้ว) · **แต่** `severe` (ป้าย "ระดับ E ขึ้นไป X เคส" ใต้การ์ด Med Error) ยังนับเฉพาะ ME ตามความหมายของการ์ดนั้น
+- **Safari resend + หน้าผลการส่ง + เสียง/สั่น (v0.9.8.1):**
+  - **`pushIncident` ลองส่งซ้ำเองในกดครั้งเดียว** (default `attempts=3`, `timeoutMs=9000`) — ต้นเหตุ Safari "ครั้งแรกไม่ไป": log server เห็นแต่ POST 201 ไม่มี error → คำขอแรกสะดุดฝั่งเบราว์เซอร์ (cold start/ITP/เน็ตวืบ) · ใช้ **AbortController** ยกเลิกคำขอค้างก่อนลองรอบใหม่ · id เดิม = idempotent (23505 = สำเร็จ ไม่เกิดซ้ำ) · ถ้าครบ 3 รอบยังไม่ได้ค่อยเข้าคิว
+  - **หน้าผลการส่งเต็มจอ** `renderResult()` (state `result: "ok"|"fail"|null` · overlay z-90 คลุมทั้งแอป · แทน toast เดิมใน `save`) — สำเร็จ = ✓ เขียว "ส่งสำเร็จ" + ปุ่ม "ส่งรายงานใหม่"(`result:null`)/"ดูรายงานทั้งหมด"(view records) · ไม่สำเร็จ = ✕ แดง "ส่งไม่สำเร็จ" ไม่หายเอง + กล่องแนะนำ Chrome (โลโก้ `chromeLogo()` inline SVG) + ปุ่ม "ส่งอีกครั้ง"(`resendResult` ส่งเคสเดิม)/"เก็บไว้ส่งทีหลัง"(`result:null` คิวยังทำงาน)
+  - **เสียง+สั่นเตือน (ตอน fail):** `audioCtxRef` + `unlockAudio()` (เรียกตอนต้น `save`/`resendResult` = user gesture · iOS ต้องปลดในจังหวะกด) + `alertFail()` = `navigator.vibrate` (เฉพาะ Android · iOS ไม่รองรับ) + บี๊บ 2 จังหวะจาก Web Audio (square 640Hz)
+  - **หน้ารายงาน DRP โชว์จุดที่พบ:** `recRows.place` เอา gate `type==="med"` ออก → `r.location || "—"` (จุดที่พบเป็นช่องร่วม · Dashboard `byLoc` นับทั้งคู่อยู่แล้ว)
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)
