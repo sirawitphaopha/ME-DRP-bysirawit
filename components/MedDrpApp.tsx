@@ -41,7 +41,11 @@ import {
   envConfig,
   fetchDrugs,
   fetchIncidents,
+  fetchDeletedIncidents,
   pushIncident,
+  softDeleteIncident,
+  restoreIncident,
+  hardDeleteIncident,
   isConfigured,
   subscribeIncidents,
   updateIncident,
@@ -87,6 +91,11 @@ interface AppState {
   saving: boolean;
   pending: Incident[]; // รายงานที่ยังส่งขึ้นระบบไม่สำเร็จ (รอส่งใหม่)
   syncing: boolean; // กำลังลองส่งคิวที่ค้างขึ้นระบบ
+  trash: Incident[]; // รายงานในถังขยะ (ลบแบบซ่อน · กู้คืนได้)
+  askDelete: boolean; // ป๊อปยืนยันลบแบบซ่อน (จากหน้ารายละเอียด)
+  hardTarget: Incident | null; // รายงานที่กำลังจะลบถาวร (จากถังขยะ)
+  hardInput: string; // ข้อความยืนยันลบถาวร (ต้องพิมพ์ HN ของเคสให้ตรง)
+  trashBusy: boolean; // กำลังทำงานกับถังขยะ (กันกดซ้ำ)
   rf: RecordFilter;
   detail: Incident | null;
   editMode: boolean;
@@ -185,6 +194,11 @@ export default function MedDrpApp() {
     saving: false,
     pending: [],
     syncing: false,
+    trash: [],
+    askDelete: false,
+    hardTarget: null,
+    hardInput: "",
+    trashBusy: false,
     rf: emptyFilter(),
     detail: null,
     editMode: false,
@@ -382,7 +396,10 @@ export default function MedDrpApp() {
         const d = await fetchIncidents(cfg);
         const serverIds = new Set(d.map((r) => r.id));
         // รายงานที่มีในเครื่องแต่ยังไม่ขึ้น server = ค้างส่ง (บั๊กเก่าทำหาย) → คงไว้บนสุด + เข้าคิวส่งใหม่
-        const localOnly = local.filter((r) => r.id && !serverIds.has(r.id));
+        // เงื่อนไข: id ยังไม่ใช่ uuid (ไม่เคยขึ้น server) หรืออยู่ในคิวรอส่ง
+        // — รายงานที่ถูกลบไปถังขยะ (มีบน server แต่ deleted_at ไม่ null) จะไม่เข้าเงื่อนไขนี้ ไม่ถูกดึงกลับ
+        const pend = new Set(readList(PENDING_KEY).map((r) => r.id));
+        const localOnly = local.filter((r) => r.id && !serverIds.has(r.id) && (!isUuid(r.id) || pend.has(r.id)));
         const merged = localOnly.length ? [...localOnly, ...d] : d;
         setState({ records: merged });
         writeList(REC_KEY, merged);
@@ -393,6 +410,16 @@ export default function MedDrpApp() {
       } catch {}
     }
   }, [setState, enqueuePending, flushPending]);
+
+  // โหลดรายงานในถังขยะ (ลบแบบซ่อน) — ใช้ในหน้าตั้งค่า
+  const loadTrash = useCallback(async () => {
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) return;
+    try {
+      const d = await fetchDeletedIncidents(cfg);
+      setState({ trash: d });
+    } catch {}
+  }, [setState]);
 
   // ---------- mount ----------
   useEffect(() => {
@@ -420,6 +447,7 @@ export default function MedDrpApp() {
     setTimeout(() => {
       loadRecords();
       flushPending(); // ส่งคิวที่ค้างจาก session ก่อนหน้าขึ้นระบบ
+      loadTrash(); // โหลดถังขยะไว้ล่วงหน้า
     }, 0);
     // โหลดคลังยา (autocomplete) — เอา cache ในเครื่องขึ้นก่อน แล้วค่อย fetch มาทับ (โหลดครั้งเดียว)
     try {
@@ -455,8 +483,10 @@ export default function MedDrpApp() {
       const d = await fetchIncidents(cfg);
       const cur = stateRef.current.records || [];
       const serverIds = new Set(d.map((r) => r.id));
-      // คงรายงานที่ยังไม่ขึ้น server ไว้บนสุด (กันหน้าจอลบรายงานที่ยังส่งไม่สำเร็จทิ้ง)
-      const localOnly = cur.filter((r) => r.id && !serverIds.has(r.id));
+      // คงเฉพาะรายงานที่ยัง "ค้างส่งจริง" ไว้บนสุด (id ไม่ใช่ uuid หรืออยู่ในคิว)
+      // รายงานที่ถูกลบไปถังขยะจะหลุดจาก server active → ปล่อยให้หายจากหน้าจอ (ไม่คงไว้)
+      const pend = new Set(readList(PENDING_KEY).map((r) => r.id));
+      const localOnly = cur.filter((r) => r.id && !serverIds.has(r.id) && (!isUuid(r.id) || pend.has(r.id)));
       const merged = localOnly.length ? [...localOnly, ...d] : d;
       const same = JSON.stringify(merged) === JSON.stringify(cur);
       if (same) return;
@@ -542,6 +572,12 @@ export default function MedDrpApp() {
   useEffect(() => {
     if (typeof window !== "undefined") window.scrollTo(0, 0);
   }, [state.view]);
+
+  // เข้าหน้าตั้งค่า → รีเฟรชถังขยะ (เผื่อมีเครื่องอื่นลบเพิ่ม)
+  useEffect(() => {
+    if (mounted && state.view === "manage") loadTrash();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.view, mounted]);
 
 
   // ---------- form mutations ----------
@@ -680,6 +716,70 @@ export default function MedDrpApp() {
       enqueuePending([rec]);
       flash("บันทึกลงเครื่องแล้ว แต่ยังไม่ขึ้นระบบส่วนกลาง");
     }
+  };
+
+  // ---------- ลบรายงาน (2 ชั้น) ----------
+  // ชั้น 1: ลบแบบซ่อน (ย้ายไปถังขยะ) — จากหน้ารายละเอียด · ยังกู้คืนได้
+  const doSoftDelete = async () => {
+    const rec = stateRef.current.detail;
+    if (!rec) return;
+    const cfg = stateRef.current.cfg;
+    if (isConfigured(cfg)) {
+      try {
+        await softDeleteIncident(cfg, rec.id);
+      } catch {
+        flash("ลบไม่สำเร็จ ลองใหม่อีกครั้ง");
+        return;
+      }
+    }
+    const recs = (stateRef.current.records || []).filter((r) => r.id !== rec.id);
+    writeList(REC_KEY, recs);
+    setState({ records: recs, detail: null, editMode: false, askDelete: false, showHistory: false });
+    flash("ย้ายไปถังขยะแล้ว ✓");
+    loadTrash();
+  };
+
+  // กู้คืนจากถังขยะ — กลับมาแสดงในรายการปกติ
+  const doRestore = async (id: string) => {
+    if (stateRef.current.trashBusy) return;
+    const cfg = stateRef.current.cfg;
+    setState({ trashBusy: true });
+    if (isConfigured(cfg)) {
+      try {
+        await restoreIncident(cfg, id);
+      } catch {
+        flash("กู้คืนไม่สำเร็จ ลองใหม่อีกครั้ง");
+        setState({ trashBusy: false });
+        return;
+      }
+    }
+    setState({ trash: (stateRef.current.trash || []).filter((r) => r.id !== id), trashBusy: false });
+    flash("กู้คืนรายงานแล้ว ✓");
+    refreshRecords();
+  };
+
+  // ชั้น 2: ลบถาวร — จากถังขยะ · ต้องพิมพ์ HN ยืนยันแล้วเท่านั้น (guard ที่ปุ่มด้วย)
+  const doHardDelete = async () => {
+    const t = stateRef.current.hardTarget;
+    if (!t || stateRef.current.trashBusy) return;
+    const cfg = stateRef.current.cfg;
+    setState({ trashBusy: true });
+    if (isConfigured(cfg)) {
+      try {
+        await hardDeleteIncident(cfg, t.id);
+      } catch {
+        flash("ลบถาวรไม่สำเร็จ ลองใหม่อีกครั้ง");
+        setState({ trashBusy: false });
+        return;
+      }
+    }
+    setState({
+      trash: (stateRef.current.trash || []).filter((r) => r.id !== t.id),
+      hardTarget: null,
+      hardInput: "",
+      trashBusy: false,
+    });
+    flash("ลบถาวรแล้ว");
   };
 
   // ---------- settings ----------
@@ -1316,6 +1416,62 @@ export default function MedDrpApp() {
       {S.view === "settings" && renderSettings()}
       {S.view === "manage" && renderManage()}
       {dt2 && renderDetailModal()}
+
+      {/* ยืนยันลบถาวร (ลบชั้น 2) — ต้องพิมพ์ HN ของเคสให้ตรง · คลิกนอกป๊อปไม่ปิด */}
+      {S.hardTarget &&
+        (() => {
+          const t = S.hardTarget!;
+          const hn = (t.hn || "").trim();
+          const confWord = hn || "ลบถาวร";
+          const ok = S.hardInput.trim() === confWord;
+          return (
+            <div
+              style={css(
+                "position:fixed;inset:0;background:rgba(11,101,93,.5);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;"
+              )}
+            >
+              <div style={css("background:#fff;border-radius:16px;border-top:4px solid #DC2626;width:410px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+                <div style={css("font-size:16px;font-weight:800;color:#B91C1C;margin-bottom:8px;")}>ลบถาวร — กู้คืนไม่ได้</div>
+                <div style={css("font-size:13.5px;color:#475569;line-height:1.6;margin-bottom:12px;")}>
+                  รายงานนี้จะถูกลบออกจากระบบอย่างถาวร ไม่สามารถกู้คืนได้อีก
+                </div>
+                <div style={css("background:#FDECEC;border:1px solid #F3C5C2;border-radius:11px;padding:11px 13px;font-size:12.5px;color:#B42318;line-height:1.55;margin-bottom:14px;")}>
+                  ⚠ ข้อมูลความคลาดเคลื่อนทางยาเป็นหลักฐานสำคัญ ควรลบถาวรเฉพาะกรณีกรอกซ้ำหรือกรอกผิดเท่านั้น
+                </div>
+                <label style={css("font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+                  {hn ? "พิมพ์ HN ของเคสนี้ " : "พิมพ์คำว่า "}
+                  <span style={css("font-family:ui-monospace,Menlo,monospace;background:#FEF3E5;color:#B45309;padding:1px 7px;border-radius:6px;font-weight:700;")}>{confWord}</span>
+                  {" เพื่อยืนยัน"}
+                </label>
+                <HInput
+                  value={S.hardInput}
+                  onChange={(e) => setState({ hardInput: e.target.value })}
+                  base={"width:100%;box-sizing:border-box;border:1.5px solid " + (ok ? "#0F8A80" : "#DCE7E5") + ";border-radius:10px;padding:11px 13px;font-size:15px;"}
+                  focus={INPUT_FOCUS}
+                />
+                <div style={css("display:flex;gap:10px;margin-top:15px;")}>
+                  <HButton
+                    onClick={() => ok && doHardDelete()}
+                    base={
+                      "flex:1;border:none;background:#DC2626;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" +
+                      (ok ? "" : "opacity:.45;pointer-events:none;")
+                    }
+                    hover="background:#B91C1C"
+                  >
+                    ลบถาวร
+                  </HButton>
+                  <HButton
+                    onClick={() => setState({ hardTarget: null, hardInput: "" })}
+                    base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                    hover="background:#F5FAF9"
+                  >
+                    ยกเลิก
+                  </HButton>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
       {S.toast && (
         <div
@@ -2845,6 +3001,41 @@ export default function MedDrpApp() {
               </div>
             </div>
           )}
+          {/* ยืนยันย้ายไปถังขยะ (ลบชั้น 1) — คลิกนอกป๊อปไม่ปิด ต้องกดปุ่มเอง */}
+          {S.askDelete && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={css(
+                "position:fixed;inset:0;background:rgba(11,101,93,.45);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;"
+              )}
+            >
+              <div style={css("background:#fff;border-radius:16px;border-top:4px solid #F5A623;width:400px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+                <div style={css("font-size:16px;font-weight:800;color:#B45309;margin-bottom:8px;")}>ย้ายรายงานนี้ไปถังขยะ</div>
+                <div style={css("font-size:13.5px;color:#475569;line-height:1.6;margin-bottom:13px;")}>
+                  รายงานจะถูกซ่อนจากรายการ แต่ยังกู้คืนได้จากถังขยะในหน้าตั้งค่า
+                </div>
+                <div style={css("background:#F6FAF9;border:1px solid #E3EFEC;border-radius:11px;padding:10px 13px;font-size:12.5px;color:#334155;margin-bottom:16px;")}>
+                  {detailTitle} · HN {dt2.hn || "—"} · {dt2.occurred_at || ""}
+                </div>
+                <div style={css("display:flex;gap:10px;")}>
+                  <HButton
+                    onClick={() => doSoftDelete()}
+                    base="flex:1;border:none;background:#F5A623;color:#3B2200;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                    hover="background:#E4980E"
+                  >
+                    ย้ายไปถังขยะ
+                  </HButton>
+                  <HButton
+                    onClick={() => setState({ askDelete: false })}
+                    base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                    hover="background:#F5FAF9"
+                  >
+                    ยกเลิก
+                  </HButton>
+                </div>
+              </div>
+            </div>
+          )}
           <div style={css("position:sticky;top:0;background:#fff;display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid #EEF3F1;z-index:2;")}>
             <span style={css(detailBadgeStyle)}>{detailTitle}</span>
             <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>{detailHeading}</div>
@@ -2925,6 +3116,14 @@ export default function MedDrpApp() {
                 hover="background:#0B655D"
               >
                 ✎ แก้ไขรายการนี้
+              </HButton>
+              {/* ปุ่มลบ — สีจาง แยกจากปุ่มหลัก กันเผลอกด · เปิดป๊อปยืนยันย้ายไปถังขยะ (ชั้น 1) */}
+              <HButton
+                onClick={() => setState({ askDelete: true })}
+                base="margin-top:10px;width:100%;box-sizing:border-box;border:none;background:none;color:#C0563F;font-size:13.5px;font-weight:600;padding:9px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;"
+                hover="background:#FDECE8;"
+              >
+                🗑 ลบรายงาน
               </HButton>
             </div>
           ) : (
@@ -3202,9 +3401,61 @@ export default function MedDrpApp() {
         <div style={css("padding:2px 2px 2px;")}>
           <div style={css("font-size:22px;font-weight:800;color:#0B655D;")}>⚙️ ตั้งค่า</div>
           <div style={css("font-size:12.5px;color:#64748B;margin-top:4px;line-height:1.5;")}>
-            ปรับแต่งค่าต่าง ๆ ของระบบ · หัวข้อด้านล่างกำลังพัฒนา ยังใช้งานไม่ได้
+            จัดการถังขยะได้ที่นี่ · หัวข้ออื่นด้านล่างกำลังพัฒนา ยังใช้งานไม่ได้
           </div>
         </div>
+
+        {/* ถังขยะ — รายงานที่ลบแบบซ่อน (กู้คืน / ลบถาวร) */}
+        <div style={css("background:#fff;border:1px solid #E3EFEC;border-radius:16px;padding:18px 20px;")}>
+          <div style={css("font-size:15px;font-weight:800;color:#0B655D;")}>🗑 ถังขยะ</div>
+          <div style={css("font-size:12px;color:#64748B;margin-top:3px;line-height:1.5;")}>
+            รายงานที่ถูกลบ · เก็บไว้ให้กู้คืน จนกว่าจะลบถาวร
+          </div>
+          {S.trash.length === 0 ? (
+            <div style={css("text-align:center;color:#94A3B8;font-size:13px;padding:20px 0 6px;")}>ไม่มีรายงานในถังขยะ</div>
+          ) : (
+            <div style={css("display:flex;flex-direction:column;gap:11px;margin-top:14px;")}>
+              {S.trash.map((t) => {
+                const isMed = t.type === "med";
+                return (
+                  <div key={t.id} style={css("border:1px solid #E3EFEC;border-radius:13px;padding:13px 15px;")}>
+                    <div style={css("display:flex;align-items:center;gap:9px;margin-bottom:4px;")}>
+                      <span
+                        style={css(
+                          "font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;" +
+                            (isMed ? "background:#E7F3F1;color:#0B655D;" : "background:#FDECE8;color:#B4341C;")
+                        )}
+                      >
+                        {isMed ? "Med Error" : "DRP"}
+                      </span>
+                      <span style={css("font-size:14px;font-weight:700;color:#0F172A;")}>HN {t.hn || "—"}</span>
+                    </div>
+                    <div style={css("font-size:12px;color:#64748B;margin-bottom:11px;")}>
+                      {t.occurred_at || ""} · {t.reporter || "—"} · ลบเมื่อ {fmtThaiDateTime(t.deleted_at || undefined)}
+                    </div>
+                    <div style={css("display:flex;gap:9px;")}>
+                      <HButton
+                        onClick={() => doRestore(t.id)}
+                        base="border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;"
+                        hover="background:#F5FAF9"
+                      >
+                        ↩ กู้คืน
+                      </HButton>
+                      <HButton
+                        onClick={() => setState({ hardTarget: t, hardInput: "" })}
+                        base="border:1.5px solid #F3C5C2;background:#fff;color:#B91C1C;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;"
+                        hover="background:#FDECEC"
+                      >
+                        ลบถาวร
+                      </HButton>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {items.map((it) => (
           <div key={it.title} style={css(mCard)}>
             <div style={css("font-size:23px;line-height:1;")}>{it.icon}</div>

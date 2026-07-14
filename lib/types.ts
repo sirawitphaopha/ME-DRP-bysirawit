@@ -44,6 +44,7 @@ export interface Incident {
 
   is_demo?: boolean;
   created_at?: string;
+  deleted_at?: string | null; // ลบแบบซ่อน (ถังขยะ) — null = ใช้งานอยู่ · มีค่า = ถูกลบ (กู้คืนได้จนกว่าจะลบถาวร)
 }
 
 export interface FormState {

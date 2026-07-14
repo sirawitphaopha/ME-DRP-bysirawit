@@ -35,6 +35,7 @@ const COLS = [
   "edit_count",
   "history",
   "created_at",
+  "deleted_at",
 ] as const;
 
 export function toRow(o: Incident): Record<string, unknown> {
@@ -90,10 +91,44 @@ export async function fetchIncidents(cfg: SupabaseCfg): Promise<Incident[]> {
   const { data, error } = await c
     .from("incidents")
     .select("*")
+    .is("deleted_at", null) // เอาเฉพาะที่ยังใช้งานอยู่ (ไม่เอาที่อยู่ในถังขยะ)
     .order("occurred_at", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
   return (data || []) as Incident[];
+}
+
+// ดึงรายงานในถังขยะ (ที่ถูกลบแบบซ่อน) — เรียงตามเวลาที่ลบ ล่าสุดขึ้นก่อน
+export async function fetchDeletedIncidents(cfg: SupabaseCfg): Promise<Incident[]> {
+  const c = getClient(cfg);
+  const { data, error } = await c
+    .from("incidents")
+    .select("*")
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+  if (error) throw error;
+  return (data || []) as Incident[];
+}
+
+// ลบแบบซ่อน (ชั้น 1) — ตั้ง deleted_at = ตอนนี้ · ยังกู้คืนได้
+export async function softDeleteIncident(cfg: SupabaseCfg, id: string): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("incidents").update({ deleted_at: new Date().toISOString() }).eq("id", id);
+  if (error) throw error;
+}
+
+// กู้คืนจากถังขยะ — ล้าง deleted_at กลับเป็น null
+export async function restoreIncident(cfg: SupabaseCfg, id: string): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("incidents").update({ deleted_at: null }).eq("id", id);
+  if (error) throw error;
+}
+
+// ลบถาวร (ชั้น 2) — ลบแถวออกจากฐานข้อมูลจริง กู้คืนไม่ได้
+export async function hardDeleteIncident(cfg: SupabaseCfg, id: string): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("incidents").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function insertIncident(cfg: SupabaseCfg, rec: Incident): Promise<void> {
