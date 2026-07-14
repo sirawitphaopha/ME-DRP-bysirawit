@@ -176,6 +176,34 @@ export async function updateIncident(cfg: SupabaseCfg, rec: Incident): Promise<v
   if (error) throw error;
 }
 
+// อัปเดต incident ขึ้น Supabase แบบ "ยืนยันผล + ลองซ้ำอัตโนมัติ" (เหมือน pushIncident) — คืน true ถ้าสำเร็จ
+// แก้บั๊ก: เดิม saveEdit ดัก error เงียบแล้วขึ้น "บันทึกการแก้ไขแล้ว" หลอก (การแก้ไขไม่ขึ้น server แล้วหาย)
+export async function pushUpdate(
+  cfg: SupabaseCfg,
+  rec: Incident,
+  opts: { attempts?: number; timeoutMs?: number } = {}
+): Promise<boolean> {
+  const attempts = opts.attempts ?? 3;
+  const timeoutMs = opts.timeoutMs ?? 9000;
+  const c = getClient(cfg);
+  const row = toRow(rec);
+  for (let a = 0; a < attempts; a++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const { error } = (await c.from("incidents").update(row).eq("id", rec.id).abortSignal(ctrl.signal)) as {
+        error: { code?: string } | null;
+      };
+      clearTimeout(timer);
+      if (!error) return true;
+    } catch {
+      clearTimeout(timer);
+    }
+    if (a < attempts - 1) await new Promise((r) => setTimeout(r, 500 * (a + 1)));
+  }
+  return false;
+}
+
 // ---------- Realtime (กระจายสัญญาณสด) ----------
 // เปิดสายรับสัญญาณตาราง incidents · 1 ช่องต่อ 1 ตาราง (หลายช่องซ้อนตารางเดียว = ได้ event ไม่ครบ)
 // พอมีเครื่องไหน insert/update/delete → เรียก onChange() ให้แอปดึงข้อมูลใหม่ทั้งชุด

@@ -43,12 +43,12 @@ import {
   fetchIncidents,
   fetchDeletedIncidents,
   pushIncident,
+  pushUpdate,
   softDeleteIncident,
   restoreIncident,
   hardDeleteIncident,
   isConfigured,
   subscribeIncidents,
-  updateIncident,
 } from "@/lib/data";
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
@@ -77,6 +77,42 @@ function writeList(key: string, list: Incident[]): void {
   try {
     localStorage.setItem(key, JSON.stringify(list));
   } catch {}
+}
+
+// เคสที่ยังไม่ขึ้น server (แหล่งความจริง = คิว pending) + local ที่ id ยังไม่ใช่ uuid (เคสเก่า) · dedup ด้วย id · ตัดเคสที่อยู่บน server แล้ว
+function dedupUnsynced(pending: Incident[], local: Incident[], serverIds: Set<string>): Incident[] {
+  const seen = new Set<string>();
+  const out: Incident[] = [];
+  for (const r of [...pending, ...local.filter((x) => !isUuid(x.id))]) {
+    if (r && r.id && !serverIds.has(r.id) && !seen.has(r.id)) {
+      seen.add(r.id);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+// ตรวจช่องบังคับ — ใช้ร่วมทั้งหน้ากรอกใหม่ (save) และหน้าแก้ไข (saveEdit)
+function validateIncident(f: Partial<FormState>, type: "med" | "drp"): Record<string, boolean> {
+  const errs: Record<string, boolean> = {};
+  if (!String(f.hn || "").trim()) errs.hn = true;
+  if (!f.occurred_at) errs.occurred_at = true;
+  if (!f.location) errs.location = true;
+  if (f.location === IPD_LOCATION && !String(f.an || "").trim()) errs.an = true; // IPD → ต้องมี AN
+  if (!f.reporter) errs.reporter = true;
+  if (!f.severity) errs.severity = true; // ระดับความรุนแรง A–I — บังคับทั้ง ME และ DRP
+  if (type === "med") {
+    if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
+    if (!(Array.isArray(f.error_nature) ? f.error_nature.length : f.error_nature)) errs.error_nature = true;
+    if (!String(f.detail || "").trim()) errs.detail = true;
+  } else {
+    if (!f.drp_type) errs.drp_type = true;
+    // บังคับผลตอบรับเฉพาะเคสที่เสนอแพทย์จริง (เลือก "ปรึกษาแพทย์ผู้สั่งใช้" และไม่ได้ติ๊กว่าเภสัชกรแก้เอง)
+    if (!f.pharmacist_only && f.intervention === CONSULT_DOCTOR && !f.outcome) errs.outcome = true;
+    if (!String(f.cause || "").trim()) errs.cause = true;
+    if (!f.intervention) errs.intervention = true;
+  }
+  return errs;
 }
 
 interface AppState {
@@ -342,54 +378,76 @@ export default function MedDrpApp() {
 
   // ---------- records I/O + คิวส่งขึ้นระบบ ----------
   const flushingRef = useRef(false);
+  const savingRef = useRef(false); // #1 กันกดปุ่มบันทึกซ้ำระหว่างกำลังส่ง (stateRef อัปเดตหลัง render จึงต้องใช้ ref แยก)
 
-  // เพิ่มรายงานเข้าคิว "รอส่งขึ้นระบบ" (กันซ้ำด้วย id)
-  const enqueuePending = useCallback(
-    (list: Incident[]) => {
-      const cur = readList(PENDING_KEY);
-      const ids = new Set(cur.map((r) => r.id));
-      const add = list.filter((r) => r && !ids.has(r.id));
-      if (!add.length) return;
-      const next = [...cur, ...add];
+  // อ่าน-แก้-เขียนคิว PENDING แบบ re-read ล่าสุดทุกครั้ง (กัน race: ไม่เขียนทับของที่เพิ่งเข้าคิวระหว่าง await)
+  const mutatePending = useCallback(
+    (fn: (list: Incident[]) => Incident[]) => {
+      const next = fn(readList(PENDING_KEY));
       writeList(PENDING_KEY, next);
       setState({ pending: next });
+      return next;
     },
     [setState]
   );
 
-  // ลองส่งคิวที่ค้างขึ้นระบบส่วนกลาง — ออก uuid ใหม่ให้ id ที่ผิดรูปแบบ (รายงานเก่าที่เคยส่งไม่ผ่านเพราะบั๊ก)
+  // เพิ่มรายงานเข้าคิว "รอส่งขึ้นระบบ" (กันซ้ำด้วย id · re-read ล่าสุด)
+  const enqueuePending = useCallback(
+    (list: Incident[]) => {
+      mutatePending((cur) => {
+        const ids = new Set(cur.map((r) => r.id));
+        const add = list.filter((r) => r && !ids.has(r.id));
+        return add.length ? [...cur, ...add] : cur;
+      });
+    },
+    [mutatePending]
+  );
+
+  // เอารายการออกจากคิว (re-read ล่าสุด · ไม่ทับทั้งชุด)
+  const dequeuePending = useCallback((id: string) => mutatePending((list) => list.filter((r) => r.id !== id)), [mutatePending]);
+
+  // ลองส่งคิวที่ค้างขึ้นระบบส่วนกลาง — เอาออก "ทีละตัวที่สำเร็จ" (re-read) ไม่เขียนทับทั้งชุด (กัน race)
   const flushPending = useCallback(async () => {
     if (flushingRef.current) return;
     const cfg = stateRef.current.cfg;
     if (!isConfigured(cfg)) return;
-    const pending = readList(PENDING_KEY);
-    if (!pending.length) return;
+    const snapshot = readList(PENDING_KEY);
+    if (!snapshot.length) return;
     flushingRef.current = true;
     setState({ syncing: true });
-    let recs = (stateRef.current.records || []).slice();
-    let recsChanged = false;
-    const stillPending: Incident[] = [];
     let synced = 0;
-    for (const p of pending) {
+    for (const p of snapshot) {
       let rec = p;
-      // id เก่าที่ไม่ใช่ uuid (เช่น "r1784...") → ออกใหม่ให้ถูกต้อง แล้วอัปเดตสำเนาในเครื่องให้ตรงกัน
-      if (!isUuid(rec.id)) {
+      let curId = p.id;
+      // id เก่าที่ไม่ใช่ uuid (รายงานเก่าที่เคยส่งไม่ผ่าน) → ออกใหม่ + อัปเดตทั้ง records และ pending ก่อนส่ง
+      if (!isUuid(curId)) {
         const nid = uuid();
-        recs = recs.map((r) => (r.id === rec.id ? { ...r, id: nid } : r));
-        recsChanged = true;
+        const oldId = curId;
+        const recs = (stateRef.current.records || []).map((r) => (r.id === oldId ? { ...r, id: nid } : r));
+        writeList(REC_KEY, recs);
+        setState({ records: recs });
+        mutatePending((list) => list.map((r) => (r.id === oldId ? { ...r, id: nid } : r)));
         rec = { ...rec, id: nid };
+        curId = nid;
       }
       const ok = await pushIncident(cfg, rec);
-      if (ok) synced++;
-      else stillPending.push(rec);
+      if (ok) {
+        synced++;
+        dequeuePending(curId);
+      }
     }
-    writeList(PENDING_KEY, stillPending);
-    if (recsChanged) writeList(REC_KEY, recs);
     flushingRef.current = false;
-    setState({ pending: stillPending, syncing: false, ...(recsChanged ? { records: recs } : {}) });
-    if (synced > 0) flash(synced + " รายงานที่ค้างส่งขึ้นระบบเรียบร้อยแล้ว ✓");
+    setState({ syncing: false });
+    if (synced > 0) {
+      flash(synced + " รายงานที่ค้างส่งขึ้นระบบเรียบร้อยแล้ว ✓");
+      // #22: ถ้าหน้าผล "ส่งไม่สำเร็จ" ยังค้าง และเคสนั้นเพิ่งซิงก์สำเร็จ → สลับเป็นหน้าสำเร็จ
+      const rr = stateRef.current.resultRec;
+      if (stateRef.current.result === "fail" && rr && !readList(PENDING_KEY).some((r) => r.id === rr.id)) {
+        setState({ result: "ok", resultRec: null });
+      }
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setState]);
+  }, [setState, mutatePending, dequeuePending]);
 
   const loadRecords = useCallback(async () => {
     const cfg = stateRef.current.cfg;
@@ -401,16 +459,14 @@ export default function MedDrpApp() {
       try {
         const d = await fetchIncidents(cfg);
         const serverIds = new Set(d.map((r) => r.id));
-        // รายงานที่มีในเครื่องแต่ยังไม่ขึ้น server = ค้างส่ง (บั๊กเก่าทำหาย) → คงไว้บนสุด + เข้าคิวส่งใหม่
-        // เงื่อนไข: id ยังไม่ใช่ uuid (ไม่เคยขึ้น server) หรืออยู่ในคิวรอส่ง
-        // — รายงานที่ถูกลบไปถังขยะ (มีบน server แต่ deleted_at ไม่ null) จะไม่เข้าเงื่อนไขนี้ ไม่ถูกดึงกลับ
-        const pend = new Set(readList(PENDING_KEY).map((r) => r.id));
-        const localOnly = local.filter((r) => r.id && !serverIds.has(r.id) && (!isUuid(r.id) || pend.has(r.id)));
-        const merged = localOnly.length ? [...localOnly, ...d] : d;
+        // เคสที่ยังไม่ขึ้น server = อยู่ในคิว pending (แหล่งความจริง) หรือเป็น local ที่ id ยังไม่ใช่ uuid (เคสเก่า)
+        // — เคสที่ลบไปถังขยะ (มีบน server แต่ deleted_at ไม่ null) ไม่เข้าเงื่อนไขนี้ ไม่ถูกดึงกลับ
+        const unsynced = dedupUnsynced(readList(PENDING_KEY), local, serverIds);
+        const merged = unsynced.length ? [...unsynced, ...d] : d;
         setState({ records: merged });
         writeList(REC_KEY, merged);
-        if (localOnly.length) {
-          enqueuePending(localOnly);
+        if (unsynced.length) {
+          enqueuePending(unsynced);
           flushPending();
         }
       } catch {}
@@ -489,17 +545,17 @@ export default function MedDrpApp() {
       const d = await fetchIncidents(cfg);
       const cur = stateRef.current.records || [];
       const serverIds = new Set(d.map((r) => r.id));
-      // คงเฉพาะรายงานที่ยัง "ค้างส่งจริง" ไว้บนสุด (id ไม่ใช่ uuid หรืออยู่ในคิว)
-      // รายงานที่ถูกลบไปถังขยะจะหลุดจาก server active → ปล่อยให้หายจากหน้าจอ (ไม่คงไว้)
-      const pend = new Set(readList(PENDING_KEY).map((r) => r.id));
-      const localOnly = cur.filter((r) => r.id && !serverIds.has(r.id) && (!isUuid(r.id) || pend.has(r.id)));
-      const merged = localOnly.length ? [...localOnly, ...d] : d;
+      // เคสที่ยังไม่ขึ้น server (คิว pending = แหล่งความจริง) + local ที่ id ยังไม่ใช่ uuid → คงไว้บนสุด
+      // เคสที่ลบไปถังขยะจะหลุดจาก server active และไม่อยู่ในคิว → หายจากหน้าจอตามจริง
+      const unsynced = dedupUnsynced(readList(PENDING_KEY), cur, serverIds);
+      const merged = unsynced.length ? [...unsynced, ...d] : d;
       const same = JSON.stringify(merged) === JSON.stringify(cur);
       if (same) return;
       setState({ records: merged });
       // ถ้ากำลังเปิดหน้ารายละเอียดของเคสที่เพิ่งถูกแก้จากอีกเครื่อง → อัปเดตหน้าที่เปิดอยู่ด้วย
+      // #23: แต่ถ้ากำลังแก้ไขค้างอยู่ ห้ามทับ detail (กันประวัติเวอร์ชันปนกับเวอร์ชันของเครื่องอื่น)
       const open = stateRef.current.detail;
-      if (open) {
+      if (open && !stateRef.current.editMode) {
         const fresh = d.find((r) => r.id === open.id);
         if (fresh) setState({ detail: fresh });
       }
@@ -710,31 +766,16 @@ export default function MedDrpApp() {
 
   // ---------- save new ----------
   const save = async () => {
+    if (savingRef.current) return; // #1 กันกดปุ่มบันทึกซ้ำระหว่างกำลังส่ง (กันได้เคสซ้ำ)
+    savingRef.current = true;
     unlockAudio(); // ปลดล็อกเสียงในจังหวะกดปุ่ม (เผื่อผลออกมาไม่สำเร็จ จะได้มีเสียงเตือน)
     const f = stateRef.current.form,
       type = stateRef.current.type;
-    const errs: Record<string, boolean> = {};
-    // ---- ช่องบังคับร่วม (ทั้ง Med + DRP) ----
-    if (!String(f.hn || "").trim()) errs.hn = true;
-    if (!f.occurred_at) errs.occurred_at = true;
-    if (!f.location) errs.location = true;
-    if (f.location === IPD_LOCATION && !String(f.an || "").trim()) errs.an = true; // IPD → ต้องมี AN
-    if (!f.reporter) errs.reporter = true;
-    if (!f.severity) errs.severity = true; // ระดับความรุนแรง A–I — บังคับกรอกทั้ง ME และ DRP
-    if (type === "med") {
-      if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
-      if (!(Array.isArray(f.error_nature) ? f.error_nature.length : f.error_nature)) errs.error_nature = true; // ลักษณะความคลาดเคลื่อน
-      if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเหตุการณ์
-    } else {
-      if (!f.drp_type) errs.drp_type = true;
-      // บังคับผลตอบรับเฉพาะเคสที่เสนอแพทย์จริง (เลือก "ปรึกษาแพทย์ผู้สั่งใช้" และไม่ได้ติ๊กว่าเภสัชกรแก้เอง)
-      if (!f.pharmacist_only && f.intervention === CONSULT_DOCTOR && !f.outcome) errs.outcome = true;
-      if (!String(f.cause || "").trim()) errs.cause = true; // รายละเอียดเหตุการณ์ / สาเหตุ (ยุบรวมช่องเดิม 2 ช่อง)
-      if (!f.intervention) errs.intervention = true; // การแก้ไข (Intervention)
-    }
+    const errs = validateIncident(f, type);
     if (Object.keys(errs).length) {
       setState({ errors: errs });
       flash("กรุณากรอกช่องที่จำเป็น (ไฮไลต์สีแดง)");
+      savingRef.current = false;
       return;
     }
     setState({ saving: true, errors: {} });
@@ -748,21 +789,24 @@ export default function MedDrpApp() {
       id: uuid(), // UUID ที่ถูกต้องเสมอทุกเบราว์เซอร์ (แก้บั๊ก Safari กรอกแล้วไม่ขึ้นระบบ)
       created_at: new Date().toISOString(),
     };
-    // 1) เก็บลงเครื่องก่อนเสมอ (กันข้อมูลหายระหว่างเน็ตมีปัญหา) + ล้างร่าง
+    // #6: เก็บลงเครื่อง + เพิ่มเข้า state + เข้าคิว "ก่อน" await เสมอ
+    //     (ถ้าปิดแท็บ/มี reconcile ระหว่างรอส่ง เคสจะยังอยู่ในคิว = แหล่งความจริง ไม่หาย)
     const recs = [rec, ...stateRef.current.records];
     writeList(REC_KEY, recs);
+    setState({ records: recs });
     clearDraft();
-    // 2) ส่งขึ้นระบบส่วนกลาง แล้ว "ยืนยันผลจริง" ก่อนแจ้งผู้ใช้ (ไม่ขึ้น "บันทึกแล้ว" หลอกอีกต่อไป)
+    enqueuePending([rec]);
+    // ส่งขึ้นระบบส่วนกลาง แล้ว "ยืนยันผลจริง" · สำเร็จค่อยเอาออกจากคิว
     const cfg = stateRef.current.cfg;
     let sent = true;
     if (isConfigured(cfg)) sent = await pushIncident(cfg, rec);
-    setState({ records: recs, saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }) });
+    if (sent) dequeuePending(rec.id);
+    setState({ saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }) });
+    savingRef.current = false;
     if (sent) {
-      // เปลี่ยนเป็นหน้าผล "ส่งสำเร็จ" เต็มจอ
-      setState({ result: "ok", resultRec: null });
+      setState({ result: "ok", resultRec: null }); // หน้าผล "ส่งสำเร็จ" เต็มจอ
     } else {
-      // ส่งไม่สำเร็จ → เข้าคิวลองส่งใหม่อัตโนมัติ + หน้าผล "ส่งไม่สำเร็จ" (ตัวโต ไม่หายเอง) + สั่น/เสียงเตือน
-      enqueuePending([rec]);
+      // ยังอยู่ในคิว (auto-flush ทำงานต่อ) + หน้าผล "ส่งไม่สำเร็จ" (ตัวโต ไม่หายเอง) + สั่น/เสียงเตือน
       setState({ result: "fail", resultRec: rec });
       alertFail();
     }
@@ -777,9 +821,8 @@ export default function MedDrpApp() {
     const cfg = stateRef.current.cfg;
     const ok = isConfigured(cfg) ? await pushIncident(cfg, rec) : true;
     if (ok) {
-      const left = readList(PENDING_KEY).filter((r) => r.id !== rec.id);
-      writeList(PENDING_KEY, left);
-      setState({ pending: left, result: "ok", resultRec: null, resending: false });
+      dequeuePending(rec.id);
+      setState({ result: "ok", resultRec: null, resending: false });
       refreshRecords();
     } else {
       setState({ resending: false });
@@ -803,6 +846,7 @@ export default function MedDrpApp() {
     }
     const recs = (stateRef.current.records || []).filter((r) => r.id !== rec.id);
     writeList(REC_KEY, recs);
+    dequeuePending(rec.id); // #3: เอาออกจากคิวด้วย ไม่งั้น flushPending จะส่งกลับขึ้นระบบเป็นเคสใช้งาน (เด้งกลับ)
     setState({ records: recs, detail: null, editMode: false, askDelete: false, showHistory: false });
     flash("ย้ายไปถังขยะแล้ว ✓");
     loadTrash();
@@ -864,9 +908,29 @@ export default function MedDrpApp() {
   const startEdit = () => setState((s) => ({ editMode: true, showHistory: false, editForm: { ...s.detail } }));
   const cancelEdit = () => setState({ editMode: false });
   const setEf = (k: string, v: unknown) => setState((s) => ({ editForm: { ...s.editForm, [k]: v } }));
+  // #2: หน้าแก้ไข error_type / error_nature เป็น "เลือกได้หลายอัน" (เดิมเป็น select อันเดียว → array หด เหลือค่าเดียว ข้อมูลหาย)
+  const efArr = (field: "error_type" | "error_nature"): string[] => {
+    const v = (stateRef.current.editForm || {})[field];
+    return Array.isArray(v) ? (v as string[]) : v ? [String(v)] : [];
+  };
+  const efToggleArr = (field: "error_type" | "error_nature", val: string) =>
+    setState((s) => {
+      const raw = s.editForm[field];
+      const cur = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
+      const next = cur.includes(val) ? cur.filter((x) => x !== val) : [...cur, val];
+      return { editForm: { ...s.editForm, [field]: next } };
+    });
   const saveEdit = async () => {
+    if (savingRef.current) return; // กันกดบันทึกซ้ำ
     const ef = stateRef.current.editForm,
       det = stateRef.current.detail!;
+    // #5: ตรวจช่องบังคับก่อนบันทึก (เหมือนหน้ากรอกใหม่) — กันลบข้อมูลจำเป็นทิ้งแล้วบันทึก
+    const errs = validateIncident(ef as unknown as Partial<FormState>, det.type);
+    if (Object.keys(errs).length) {
+      flash("กรุณากรอกช่องที่จำเป็นให้ครบก่อนบันทึก");
+      return;
+    }
+    savingRef.current = true;
     const snap: Incident = { ...det };
     delete snap.history;
     snap.saved_at = new Date().toISOString();
@@ -878,24 +942,27 @@ export default function MedDrpApp() {
       ...(ef as Incident),
       drugs: dArr,
       drug: dArr.join(", "),
-      shift: shiftOf(ef.occurred_time),
+      shift: shiftOf(ef.occurred_time) || ef.shift || det.shift, // #24: ไม่ล้างเวรถ้าเคสไม่มีเวลา (เคสเก่า)
       edited: true,
       edited_at: new Date().toISOString(),
       edit_count: (det.edit_count || 0) + 1,
       history: [...(det.history || []), snap],
     };
     const recs = (stateRef.current.records || []).map((r) => (r.id === updated.id ? updated : r));
-    try {
-      localStorage.setItem(REC_KEY, JSON.stringify(recs));
-    } catch {}
+    writeList(REC_KEY, recs);
+    setState({ records: recs, detail: updated, saving: true });
+    // #4: ยืนยันผลจริง + ลองซ้ำอัตโนมัติ (ไม่ขึ้น "บันทึกการแก้ไขแล้ว" หลอกอีกต่อไป)
     const cfg = stateRef.current.cfg;
-    if (isConfigured(cfg)) {
-      try {
-        await updateIncident(cfg, updated);
-      } catch {}
+    let ok = true;
+    if (isConfigured(cfg)) ok = await pushUpdate(cfg, updated);
+    setState({ saving: false, editMode: false });
+    savingRef.current = false;
+    if (ok) {
+      flash("บันทึกการแก้ไขและส่งขึ้นระบบเรียบร้อย ✓");
+    } else {
+      flash("บันทึกในเครื่องแล้ว แต่ยังไม่ขึ้นระบบส่วนกลาง — เปิดแก้ไขแล้วบันทึกอีกครั้งเมื่อเน็ตกลับมา");
+      alertFail();
     }
-    setState({ records: recs, detail: updated, editMode: false });
-    flash("บันทึกการแก้ไขแล้ว ✓");
   };
 
   // ---------- CSV export ----------
@@ -1350,8 +1417,6 @@ export default function MedDrpApp() {
     };
   });
   const ef = S.editForm || {};
-  const efNatureVal = (Array.isArray(ef.error_nature) ? ef.error_nature[0] : ef.error_nature) || "";
-  const efErrTypeVal = (Array.isArray(ef.error_type) ? ef.error_type[0] : ef.error_type) || "";
 
   const cfgConfigured = isConfigured(S.cfg);
 
@@ -1997,7 +2062,10 @@ export default function MedDrpApp() {
 
             <HButton
               onClick={() => save()}
-              base="width:100%;border:none;background:#F5A623;color:#3B2200;font-size:16px;font-weight:700;padding:15px;border-radius:13px;cursor:pointer;box-shadow:0 10px 22px -8px rgba(245,166,35,.7);"
+              base={
+                "width:100%;border:none;background:#F5A623;color:#3B2200;font-size:16px;font-weight:700;padding:15px;border-radius:13px;cursor:pointer;box-shadow:0 10px 22px -8px rgba(245,166,35,.7);" +
+                (S.saving ? "opacity:.65;pointer-events:none;" : "") // #1 กันกดซ้ำ (ล็อกปุ่มระหว่างส่ง)
+              }
               hover="background:#E4980E"
             >
               {S.saving ? "กำลังบันทึก…" : "บันทึกรายงาน"}
@@ -3372,26 +3440,29 @@ export default function MedDrpApp() {
               </div>
             )}
             <div>
-              <label style={editLabel}>ประเภท Error</label>
-              <select value={efErrTypeVal} onChange={(e) => setEf("error_type", e.target.value ? [e.target.value] : [])} style={css(editInputSelect)}>
-                <option value="">—</option>
-                {errorTypeOpts.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
+              <label style={editLabel}>
+                ประเภท Error <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
+              </label>
+              <div style={css("display:flex;flex-wrap:wrap;gap:7px;")}>
+                {ERROR_TYPES.map((t) => (
+                  <button key={t.key} type="button" onClick={() => efToggleArr("error_type", t.key)} style={css(chip(efArr("error_type").includes(t.key)))}>
+                    {t.key}
+                    {t.th ? " (" + t.th + ")" : ""}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
             <div>
-              <label style={editLabel}>ลักษณะความคลาดเคลื่อน</label>
-              <select value={efNatureVal} onChange={(e) => setEf("error_nature", e.target.value ? [e.target.value] : [])} style={css(editInputSelect)}>
-                <option value="">—</option>
-                {errorNatureOpts.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
+              <label style={editLabel}>
+                ลักษณะความคลาดเคลื่อน <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
+              </label>
+              <div style={css("display:flex;flex-wrap:wrap;gap:7px;")}>
+                {ERROR_NATURE.map((n) => (
+                  <button key={n.key} type="button" onClick={() => efToggleArr("error_nature", n.key)} style={css(chip(efArr("error_nature").includes(n.key)))}>
+                    {n.key}
+                  </button>
                 ))}
-              </select>
+              </div>
             </div>
             <div>
               <label style={editLabel}>ระดับ NCC MERP</label>
