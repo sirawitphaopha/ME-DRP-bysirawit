@@ -102,6 +102,26 @@ export async function insertIncident(cfg: SupabaseCfg, rec: Incident): Promise<v
   if (error) throw error;
 }
 
+// ส่ง incident ขึ้น Supabase แบบ "ยืนยันผลจริง" — คืน true เฉพาะเมื่อขึ้นระบบสำเร็จ (หรือมีอยู่แล้ว)
+// มี timeout กันคำขอค้างนาน (เคสมือถือเน็ตช้า) เพื่อไม่ให้ UI ขึ้น "บันทึกแล้ว" หลอกทั้งที่ยังไม่ขึ้นระบบ
+export async function pushIncident(cfg: SupabaseCfg, rec: Incident, timeoutMs = 12000): Promise<boolean> {
+  const c = getClient(cfg);
+  const insertP: Promise<{ error: { code?: string } | null }> = Promise.resolve(
+    c.from("incidents").insert(toRow(rec))
+  ).then((r) => ({ error: (r as { error: { code?: string } | null }).error }));
+  const timeoutP = new Promise<{ error: { code?: string } | null }>((resolve) =>
+    setTimeout(() => resolve({ error: { code: "TIMEOUT" } }), timeoutMs)
+  );
+  try {
+    const { error } = await Promise.race([insertP, timeoutP]);
+    if (!error) return true;
+    if (error.code === "23505") return true; // แถวนี้อยู่ในระบบแล้ว (PK ซ้ำ) = ถือว่าสำเร็จ
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function updateIncident(cfg: SupabaseCfg, rec: Incident): Promise<void> {
   const c = getClient(cfg);
   const { error } = await c.from("incidents").update(toRow(rec)).eq("id", rec.id);

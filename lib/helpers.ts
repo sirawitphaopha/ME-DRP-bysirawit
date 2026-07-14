@@ -3,6 +3,40 @@ import { DRP_TYPES, LOCATIONS, OUTCOMES } from "./constants";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
+// สร้างรหัส UUID v4 ที่ถูกต้องเสมอ (คอลัมน์ id ในฐานข้อมูลเป็นชนิด uuid — รับเฉพาะรูปแบบนี้)
+// 🐛 บั๊กเดิม: fallback เป็น "r"+Date.now() ซึ่งไม่ใช่ uuid → Supabase ตีกลับ (invalid input syntax for type uuid)
+//    บันทึกไม่ขึ้นระบบส่วนกลาง โดยเฉพาะ Safari รุ่นเก่า / เปิดผ่านลิงก์ที่ไม่ใช่ https / เว็บวิวในแอป
+//    ที่ไม่มี crypto.randomUUID → เครื่องอื่นเลยไม่เห็นข้อมูล (bug cross-browser)
+// ตัวนี้ทำงานได้ทุกเบราว์เซอร์: ใช้ crypto.randomUUID ถ้ามี, ไม่มีก็สุ่มเลขมาประกอบเป็น uuid เอง
+export function uuid(): string {
+  const c: Crypto | undefined = typeof crypto !== "undefined" ? crypto : undefined;
+  if (c && typeof c.randomUUID === "function") {
+    try {
+      return c.randomUUID();
+    } catch {
+      // บางเว็บวิว throw ตอน context ไม่ปลอดภัย → ตกไปใช้วิธีสุ่มเองด้านล่าง
+    }
+  }
+  const b = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") {
+    c.getRandomValues(b);
+  } else {
+    for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  }
+  b[6] = (b[6] & 0x0f) | 0x40; // version 4
+  b[8] = (b[8] & 0x3f) | 0x80; // variant 10xx
+  const h: string[] = [];
+  for (let i = 0; i < 16; i++) h.push(b[i].toString(16).padStart(2, "0"));
+  return (
+    h[0] + h[1] + h[2] + h[3] + "-" + h[4] + h[5] + "-" + h[6] + h[7] + "-" + h[8] + h[9] + "-" + h[10] + h[11] + h[12] + h[13] + h[14] + h[15]
+  );
+}
+
+// ตรวจว่า id เป็นรูปแบบ uuid ที่ฐานข้อมูลรับได้ไหม — ใช้เช็ค id เก่าที่อาจเป็น "r..." ก่อนส่งซ้ำ
+export function isUuid(v: unknown): boolean {
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
 export function today(): string {
   const d = new Date();
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());

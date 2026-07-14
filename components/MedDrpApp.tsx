@@ -33,13 +33,15 @@ import {
   outcomeLabel,
   shiftOf,
   today,
+  uuid,
+  isUuid,
 } from "@/lib/helpers";
 import { seed } from "@/lib/seed";
 import {
   envConfig,
   fetchDrugs,
   fetchIncidents,
-  insertIncident,
+  pushIncident,
   isConfigured,
   subscribeIncidents,
   updateIncident,
@@ -55,6 +57,23 @@ const START_VIEW: ViewName = "form";
 const REC_KEY = "meddrp_records_v6"; // v6: ล้าง demo ที่ค้างในเครื่อง (เอา seed ออกจากโค้ดแล้ว · ข้อมูลจริงดึงจาก Supabase)
 const CFG_KEY = "meddrp_cfg";
 const DRAFT_KEY = "meddrp_draft";
+// คิวรายงานที่ยังส่งขึ้นระบบส่วนกลางไม่สำเร็จ (เก็บไว้ในเครื่องเพื่อลองส่งใหม่อัตโนมัติ · กันข้อมูลหาย)
+const PENDING_KEY = "meddrp_pending_v1";
+
+// อ่าน/เขียนลิสต์ Incident ใน localStorage อย่างปลอดภัย (คืน [] ถ้าอ่านไม่ได้)
+function readList(key: string): Incident[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(key) || "null");
+    return Array.isArray(v) ? (v as Incident[]) : [];
+  } catch {
+    return [];
+  }
+}
+function writeList(key: string, list: Incident[]): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(list));
+  } catch {}
+}
 
 interface AppState {
   view: ViewName;
@@ -66,6 +85,8 @@ interface AppState {
   cfg: SupabaseCfg;
   toast: string;
   saving: boolean;
+  pending: Incident[]; // รายงานที่ยังส่งขึ้นระบบไม่สำเร็จ (รอส่งใหม่)
+  syncing: boolean; // กำลังลองส่งคิวที่ค้างขึ้นระบบ
   rf: RecordFilter;
   detail: Incident | null;
   editMode: boolean;
@@ -162,6 +183,8 @@ export default function MedDrpApp() {
     cfg: { url: "", key: "" },
     toast: "",
     saving: false,
+    pending: [],
+    syncing: false,
     rf: emptyFilter(),
     detail: null,
     editMode: false,
@@ -297,27 +320,79 @@ export default function MedDrpApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [animateKpi]);
 
-  // ---------- records I/O ----------
+  // ---------- records I/O + คิวส่งขึ้นระบบ ----------
+  const flushingRef = useRef(false);
+
+  // เพิ่มรายงานเข้าคิว "รอส่งขึ้นระบบ" (กันซ้ำด้วย id)
+  const enqueuePending = useCallback(
+    (list: Incident[]) => {
+      const cur = readList(PENDING_KEY);
+      const ids = new Set(cur.map((r) => r.id));
+      const add = list.filter((r) => r && !ids.has(r.id));
+      if (!add.length) return;
+      const next = [...cur, ...add];
+      writeList(PENDING_KEY, next);
+      setState({ pending: next });
+    },
+    [setState]
+  );
+
+  // ลองส่งคิวที่ค้างขึ้นระบบส่วนกลาง — ออก uuid ใหม่ให้ id ที่ผิดรูปแบบ (รายงานเก่าที่เคยส่งไม่ผ่านเพราะบั๊ก)
+  const flushPending = useCallback(async () => {
+    if (flushingRef.current) return;
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) return;
+    const pending = readList(PENDING_KEY);
+    if (!pending.length) return;
+    flushingRef.current = true;
+    setState({ syncing: true });
+    let recs = (stateRef.current.records || []).slice();
+    let recsChanged = false;
+    const stillPending: Incident[] = [];
+    let synced = 0;
+    for (const p of pending) {
+      let rec = p;
+      // id เก่าที่ไม่ใช่ uuid (เช่น "r1784...") → ออกใหม่ให้ถูกต้อง แล้วอัปเดตสำเนาในเครื่องให้ตรงกัน
+      if (!isUuid(rec.id)) {
+        const nid = uuid();
+        recs = recs.map((r) => (r.id === rec.id ? { ...r, id: nid } : r));
+        recsChanged = true;
+        rec = { ...rec, id: nid };
+      }
+      const ok = await pushIncident(cfg, rec);
+      if (ok) synced++;
+      else stillPending.push(rec);
+    }
+    writeList(PENDING_KEY, stillPending);
+    if (recsChanged) writeList(REC_KEY, recs);
+    flushingRef.current = false;
+    setState({ pending: stillPending, syncing: false, ...(recsChanged ? { records: recs } : {}) });
+    if (synced > 0) flash(synced + " รายงานที่ค้างส่งขึ้นระบบเรียบร้อยแล้ว ✓");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setState]);
+
   const loadRecords = useCallback(async () => {
     const cfg = stateRef.current.cfg;
     // 1) โชว์ข้อมูลในเครื่องทันที (ไม่บล็อกด้วย network)
-    let local: Incident[] | null = null;
-    try {
-      local = JSON.parse(localStorage.getItem(REC_KEY) || "null");
-    } catch {}
-    // เอา demo seed ออก — ผู้ใช้จริงไม่ต้องมีข้อมูลปลอม (ถ้ายังไม่เชื่อม Supabase = หน้ารายการว่าง)
-    if (local && local.length) setState({ records: local });
-    // 2) ถ้าตั้งค่า Supabase แล้ว → ดึงข้อมูลจริงมาทับเบื้องหลัง
+    const local = readList(REC_KEY);
+    if (local.length) setState({ records: local });
+    // 2) ถ้าตั้งค่า Supabase แล้ว → ดึงข้อมูลจริง แล้ว "รวม" กับของในเครื่อง (ไม่ทับทิ้ง)
     if (isConfigured(cfg)) {
       try {
         const d = await fetchIncidents(cfg);
-        setState({ records: d });
-        try {
-          localStorage.setItem(REC_KEY, JSON.stringify(d));
-        } catch {}
+        const serverIds = new Set(d.map((r) => r.id));
+        // รายงานที่มีในเครื่องแต่ยังไม่ขึ้น server = ค้างส่ง (บั๊กเก่าทำหาย) → คงไว้บนสุด + เข้าคิวส่งใหม่
+        const localOnly = local.filter((r) => r.id && !serverIds.has(r.id));
+        const merged = localOnly.length ? [...localOnly, ...d] : d;
+        setState({ records: merged });
+        writeList(REC_KEY, merged);
+        if (localOnly.length) {
+          enqueuePending(localOnly);
+          flushPending();
+        }
       } catch {}
     }
-  }, [setState]);
+  }, [setState, enqueuePending, flushPending]);
 
   // ---------- mount ----------
   useEffect(() => {
@@ -339,10 +414,13 @@ export default function MedDrpApp() {
     } else {
       form = emptyForm(DEFAULT_REPORTER);
     }
-    setState({ cfg, view: sv, type, form });
+    setState({ cfg, view: sv, type, form, pending: readList(PENDING_KEY) });
     setMounted(true);
-    // load records after cfg is set
-    setTimeout(() => loadRecords(), 0);
+    // load records after cfg is set (loadRecords จะ merge server + เข้าคิวรายงานที่ยังไม่ขึ้นระบบ)
+    setTimeout(() => {
+      loadRecords();
+      flushPending(); // ส่งคิวที่ค้างจาก session ก่อนหน้าขึ้นระบบ
+    }, 0);
     // โหลดคลังยา (autocomplete) — เอา cache ในเครื่องขึ้นก่อน แล้วค่อย fetch มาทับ (โหลดครั้งเดียว)
     try {
       const dc = JSON.parse(localStorage.getItem("meddrp_drugs") || "null");
@@ -375,18 +453,21 @@ export default function MedDrpApp() {
     if (!isConfigured(cfg)) return;
     try {
       const d = await fetchIncidents(cfg);
-      const same = JSON.stringify(d) === JSON.stringify(stateRef.current.records || []);
+      const cur = stateRef.current.records || [];
+      const serverIds = new Set(d.map((r) => r.id));
+      // คงรายงานที่ยังไม่ขึ้น server ไว้บนสุด (กันหน้าจอลบรายงานที่ยังส่งไม่สำเร็จทิ้ง)
+      const localOnly = cur.filter((r) => r.id && !serverIds.has(r.id));
+      const merged = localOnly.length ? [...localOnly, ...d] : d;
+      const same = JSON.stringify(merged) === JSON.stringify(cur);
       if (same) return;
-      setState({ records: d });
+      setState({ records: merged });
       // ถ้ากำลังเปิดหน้ารายละเอียดของเคสที่เพิ่งถูกแก้จากอีกเครื่อง → อัปเดตหน้าที่เปิดอยู่ด้วย
       const open = stateRef.current.detail;
       if (open) {
         const fresh = d.find((r) => r.id === open.id);
         if (fresh) setState({ detail: fresh });
       }
-      try {
-        localStorage.setItem(REC_KEY, JSON.stringify(d));
-      } catch {}
+      writeList(REC_KEY, merged);
       flash("อัปเดตข้อมูลล่าสุดจากเครื่องอื่นแล้ว ✓");
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -406,21 +487,28 @@ export default function MedDrpApp() {
 
     const unsub = subscribeIncidents(cfg, schedule);
 
-    // กันสัญญาณหลุด (โน้ตบุ๊กพับจอ / เน็ตวืบ) — กลับมาที่แท็บเมื่อไหร่ ดึงข้อมูลใหม่รอบหนึ่ง
+    // กันสัญญาณหลุด (โน้ตบุ๊กพับจอ / เน็ตวืบ) — กลับมาที่แท็บ/เน็ตกลับมา = ดึงข้อมูลใหม่ + ลองส่งคิวที่ค้าง
     const onVis = () => {
-      if (document.visibilityState === "visible") refreshRecords();
+      if (document.visibilityState === "visible") {
+        refreshRecords();
+        flushPending();
+      }
+    };
+    const onOnline = () => {
+      refreshRecords();
+      flushPending();
     };
     document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("online", refreshRecords);
+    window.addEventListener("online", onOnline);
 
     return () => {
       if (deb) clearTimeout(deb);
       unsub();
       document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("online", refreshRecords);
+      window.removeEventListener("online", onOnline);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, state.cfg.url, state.cfg.key, refreshRecords]);
+  }, [mounted, state.cfg.url, state.cfg.key, refreshRecords, flushPending]);
 
   // re-animate KPIs เมื่อเข้า dashboard / เปลี่ยนตัวกรอง/ช่วงเวลา/ข้อมูล
   useEffect(() => {
@@ -573,22 +661,25 @@ export default function MedDrpApp() {
       shift: shiftOf(f.occurred_time),
       drugs: drugsArr,
       drug: drugsArr.join(", "),
-      id: typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : "r" + Date.now(),
+      id: uuid(), // UUID ที่ถูกต้องเสมอทุกเบราว์เซอร์ (แก้บั๊ก Safari กรอกแล้วไม่ขึ้นระบบ)
       created_at: new Date().toISOString(),
     };
-    const cfg = stateRef.current.cfg;
-    if (isConfigured(cfg)) {
-      try {
-        await insertIncident(cfg, rec);
-      } catch {}
-    }
+    // 1) เก็บลงเครื่องก่อนเสมอ (กันข้อมูลหายระหว่างเน็ตมีปัญหา) + ล้างร่าง
     const recs = [rec, ...stateRef.current.records];
-    try {
-      localStorage.setItem(REC_KEY, JSON.stringify(recs));
-    } catch {}
+    writeList(REC_KEY, recs);
     clearDraft();
+    // 2) ส่งขึ้นระบบส่วนกลาง แล้ว "ยืนยันผลจริง" ก่อนแจ้งผู้ใช้ (ไม่ขึ้น "บันทึกแล้ว" หลอกอีกต่อไป)
+    const cfg = stateRef.current.cfg;
+    let sent = true;
+    if (isConfigured(cfg)) sent = await pushIncident(cfg, rec);
     setState({ records: recs, saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }) });
-    flash("บันทึกแล้ว ✓");
+    if (sent) {
+      flash("บันทึกและส่งขึ้นระบบเรียบร้อย ✓");
+    } else {
+      // ส่งไม่สำเร็จ → เข้าคิวลองส่งใหม่อัตโนมัติ + เตือนตรง ๆ (แถบเตือนด้านบนจะโชว์จาก state.pending)
+      enqueuePending([rec]);
+      flash("บันทึกลงเครื่องแล้ว แต่ยังไม่ขึ้นระบบส่วนกลาง");
+    }
   };
 
   // ---------- settings ----------
@@ -1191,6 +1282,30 @@ export default function MedDrpApp() {
             <button onClick={() => setState({ view: "manage" })} style={css(nav(S.view === "manage"))}>
               ตั้งค่า
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* แถบเตือน: มีรายงานค้างที่ยังส่งขึ้นระบบส่วนกลางไม่สำเร็จ (ยืนยันการส่ง + แนะนำเบราว์เซอร์อื่น) */}
+      {S.pending.length > 0 && (
+        <div style={css("max-width:960px;margin:12px auto 0;padding:0 16px;box-sizing:border-box;")}>
+          <div
+            style={css(
+              "background:#FEF3E5;border:1px solid #F5D6A6;border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
+            )}
+          >
+            <span style={css("font-size:18px;line-height:1;")}>⚠</span>
+            <div style={css("flex:1;min-width:200px;font-size:13px;color:#B45309;font-weight:600;line-height:1.5;")}>
+              มี {S.pending.length} รายงานที่ยังไม่ขึ้นระบบส่วนกลาง (เก็บไว้ในเครื่องนี้แล้ว){" "}
+              {S.syncing ? "· กำลังส่ง…" : "· หากส่งไม่สำเร็จ แนะนำให้เปิดผ่าน Google Chrome"}
+            </div>
+            <HButton
+              onClick={() => flushPending()}
+              base="border:1px solid #E4980E;background:#F5A623;color:#3B2200;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap;"
+              hover="background:#E4980E"
+            >
+              {S.syncing ? "กำลังส่ง…" : "ลองส่งอีกครั้ง"}
+            </HButton>
           </div>
         </div>
       )}
