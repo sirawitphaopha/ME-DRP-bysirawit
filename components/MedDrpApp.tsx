@@ -75,6 +75,7 @@ interface AppState {
   showSevLegend: boolean;
   showNatureLegend: boolean;
   showDrpLegend: boolean;
+  confirmDiscard: boolean; // ป๊อปยืนยันตอนจะปิดหน้าต่างขณะแก้ไขค้างอยู่
   errors: Record<string, boolean>;
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
@@ -170,6 +171,7 @@ export default function MedDrpApp() {
     showSevLegend: false,
     showNatureLegend: false,
     showDrpLegend: false,
+    confirmDiscard: false,
     errors: {},
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
@@ -886,6 +888,33 @@ export default function MedDrpApp() {
       Math.round(((byNat[k] || 0) / natMax) * 100) +
       "%;",
   }));
+  // แยกตามผู้รายงาน — เรียงมากไปน้อย · สีสดคนละสีต่อแท่ง (ไม่ใช้เทลของธีม เพื่อให้แยกออกจากกราฟอื่น)
+  const REPORTER_COLORS = [
+    "linear-gradient(90deg,#F43F5E,#BE123C)", // ชมพูแดง
+    "linear-gradient(90deg,#F97316,#C2410C)", // ส้ม
+    "linear-gradient(90deg,#FACC15,#CA8A04)", // เหลือง
+    "linear-gradient(90deg,#22C55E,#15803D)", // เขียว
+    "linear-gradient(90deg,#06B6D4,#0E7490)", // ฟ้า
+    "linear-gradient(90deg,#3B82F6,#1D4ED8)", // น้ำเงิน
+    "linear-gradient(90deg,#8B5CF6,#6D28D9)", // ม่วง
+    "linear-gradient(90deg,#EC4899,#BE185D)", // บานเย็น
+  ];
+  const byReporter: Record<string, number> = {};
+  recs.forEach((r) => {
+    if (r.reporter) byReporter[r.reporter] = (byReporter[r.reporter] || 0) + 1;
+  });
+  const repSorted = Object.entries(byReporter).sort((a, b) => b[1] - a[1]);
+  const repMax = Math.max(1, ...repSorted.map(([, c]) => c));
+  const reporterBreak = repSorted.map(([name, count], i) => ({
+    label: name,
+    count,
+    barStyle:
+      "height:100%;border-radius:999px;background:" +
+      REPORTER_COLORS[i % REPORTER_COLORS.length] +
+      ";transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      Math.round((count / repMax) * 100) +
+      "%;",
+  }));
   const medRecs2 = recs.filter((r) => r.type === "med");
   const nmN = medRecs2.filter((r) => ["A", "B"].includes(r.severity || "")).length;
   const nearMissPct = medRecs2.length ? Math.round((nmN / medRecs2.length) * 100) : 0;
@@ -1116,7 +1145,7 @@ export default function MedDrpApp() {
               กรอก
             </button>
             <button onClick={() => setState({ view: "records" })} style={css(navM(S.view === "records"))}>
-              รายการ
+              รายงาน
             </button>
             <button onClick={() => setState({ view: "dashboard" })} style={css(navM(S.view === "dashboard"))}>
               สรุป
@@ -1151,7 +1180,7 @@ export default function MedDrpApp() {
               กรอกข้อมูล
             </button>
             <button onClick={() => setState({ view: "records" })} style={css(nav(S.view === "records"))}>
-              รายการ
+              รายงาน
             </button>
             <button onClick={() => setState({ view: "dashboard" })} style={css(nav(S.view === "dashboard"))}>
               Dashboard
@@ -2221,6 +2250,22 @@ export default function MedDrpApp() {
           </div>
         </div>
 
+        {/* แยกตามผู้รายงาน — สีสดคนละสีต่อคน เรียงมากไปน้อย */}
+        <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;margin-bottom:16px;")}>
+          <div style={css("display:flex;align-items:baseline;gap:8px;margin-bottom:14px;")}>
+            <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>แยกตามผู้รายงาน</div>
+            <div style={css("font-size:12.5px;color:#94A3B8;")}>{reporterBreak.length} คน · เรียงจากมากไปน้อย</div>
+          </div>
+          {reporterBreak.length ? (
+            renderBarList(
+              reporterBreak.map((t) => ({ label: t.label, count: t.count, barStyle: t.barStyle })),
+              10
+            )
+          ) : (
+            <div style={css("padding:14px;text-align:center;color:#94A3B8;font-size:13.5px;")}>ยังไม่มีข้อมูลในช่วงเวลาที่เลือก</div>
+          )}
+        </div>
+
         {/* nature + near miss / HA / LASA */}
         <div style={css("display:grid;grid-template-columns:" + (isMobile ? "1fr" : "1.4fr 1fr") + ";gap:14px;margin-bottom:16px;")}>
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
@@ -2299,7 +2344,7 @@ export default function MedDrpApp() {
         {/* recent table */}
         <div className="no-print" style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
           <div style={css("display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap;")}>
-            <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>รายการล่าสุด</div>
+            <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>รายงานล่าสุด</div>
             <HInput
               value={S.search}
               onChange={(e) => setState({ search: e.target.value })}
@@ -2332,7 +2377,7 @@ export default function MedDrpApp() {
                 </div>
               ))}
               {recentFiltered.length === 0 && (
-                <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการ</div>
+                <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายงาน</div>
               )}
             </div>
           ) : (
@@ -2364,7 +2409,7 @@ export default function MedDrpApp() {
                 </tbody>
               </table>
               {recentFiltered.length === 0 && (
-                <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการ</div>
+                <div style={css("padding:26px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายงาน</div>
               )}
             </div>
           )}
@@ -2404,9 +2449,9 @@ export default function MedDrpApp() {
       <div style={css("max-width:1180px;margin:0 auto;padding:24px 18px 70px;")}>
         <div style={css("display:flex;align-items:flex-end;flex-wrap:wrap;gap:14px;margin-bottom:18px;")}>
           <div>
-            <div style={css("font-size:24px;font-weight:700;color:#0B655D;")}>รายการทั้งหมด</div>
+            <div style={css("font-size:24px;font-weight:700;color:#0B655D;")}>รายงานทั้งหมด</div>
             <div style={css("font-size:13px;color:#64748B;margin-top:2px;")}>
-              แสดง {rlist.length} จาก {(S.records || []).length} รายการ
+              แสดง {rlist.length} จาก {(S.records || []).length} รายงาน
             </div>
           </div>
           <div style={css("margin-left:auto;display:flex;gap:8px;")}>
@@ -2536,7 +2581,7 @@ export default function MedDrpApp() {
             ))}
             {rlist.length === 0 && (
               <div style={css("padding:34px;text-align:center;color:#94A3B8;font-size:14px;background:#fff;border:1px solid #DEEBE8;border-radius:14px;")}>
-                ไม่พบรายการตามเงื่อนไข
+                ไม่พบรายงานตามเงื่อนไข
               </div>
             )}
           </div>
@@ -2584,7 +2629,7 @@ export default function MedDrpApp() {
                 </tbody>
               </table>
               {rlist.length === 0 && (
-                <div style={css("padding:34px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายการตามเงื่อนไข</div>
+                <div style={css("padding:34px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบรายงานตามเงื่อนไข</div>
               )}
             </div>
           </div>
@@ -2629,9 +2674,22 @@ export default function MedDrpApp() {
     const detailTitle = isMed2 ? "Med Error" : "DRP";
     const detailHeading = S.editMode ? "แก้ไขรายการ" : "รายละเอียดที่บันทึก";
     const hasHistory = !!(dt2.history && dt2.history.length);
+    // 🚨 คลิกพื้นที่ว่าง (backdrop) = ไม่ปิดหน้าต่างเด็ดขาด ต้องกดปุ่มปิดเอง (กันเผลอปิดทับงานที่ยังไม่บันทึก)
+    // กดปุ่ม × ขณะแก้ไขค้างอยู่ → ถามยืนยันก่อนทิ้ง
+    const closeDetail = () => setState({ detail: null, editMode: false, showHistory: false, confirmDiscard: false });
+    const onBackdrop = () => {
+      if (S.editMode) flash("กำลังแก้ไขอยู่ กดบันทึกหรือยกเลิกก่อนปิดหน้าต่าง");
+    };
+    const onCloseBtn = () => {
+      if (S.editMode) {
+        setState({ confirmDiscard: true });
+        return;
+      }
+      closeDetail();
+    };
     return (
       <div
-        onClick={() => setState({ detail: null, editMode: false, showHistory: false })}
+        onClick={onBackdrop}
         style={css(
           "position:fixed;inset:0;background:rgba(11,101,93,.35);backdrop-filter:blur(2px);z-index:60;display:flex;align-items:center;justify-content:center;padding:20px;"
         )}
@@ -2640,11 +2698,43 @@ export default function MedDrpApp() {
           onClick={(e) => e.stopPropagation()}
           style={css("background:#fff;border-radius:18px;width:540px;max-width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}
         >
+          {/* ยืนยันทิ้งการแก้ไข — คลิกนอกป๊อปไม่ปิด ต้องกดปุ่มเลือกเอง */}
+          {S.confirmDiscard && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={css(
+                "position:fixed;inset:0;background:rgba(11,101,93,.45);z-index:70;display:flex;align-items:center;justify-content:center;padding:20px;"
+              )}
+            >
+              <div style={css("background:#fff;border-radius:16px;width:390px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+                <div style={css("font-size:16px;font-weight:700;color:#0B655D;margin-bottom:8px;")}>ปิดโดยไม่บันทึกการแก้ไข</div>
+                <div style={css("font-size:14px;color:#475569;line-height:1.55;margin-bottom:18px;")}>
+                  รายงานนี้กำลังแก้ไขอยู่ ถ้าปิดตอนนี้ สิ่งที่แก้ไว้จะหายทั้งหมด
+                </div>
+                <div style={css("display:flex;gap:10px;")}>
+                  <HButton
+                    onClick={closeDetail}
+                    base="flex:1;border:none;background:#DC2626;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                    hover="background:#B91C1C"
+                  >
+                    ทิ้งการแก้ไข
+                  </HButton>
+                  <HButton
+                    onClick={() => setState({ confirmDiscard: false })}
+                    base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                    hover="background:#F5FAF9"
+                  >
+                    กลับไปแก้ต่อ
+                  </HButton>
+                </div>
+              </div>
+            </div>
+          )}
           <div style={css("position:sticky;top:0;background:#fff;display:flex;align-items:center;gap:12px;padding:18px 22px;border-bottom:1px solid #EEF3F1;z-index:2;")}>
             <span style={css(detailBadgeStyle)}>{detailTitle}</span>
             <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>{detailHeading}</div>
             <button
-              onClick={() => setState({ detail: null, editMode: false, showHistory: false })}
+              onClick={onCloseBtn}
               style={css("margin-left:auto;border:none;background:#EEF3F1;color:#475569;width:32px;height:32px;border-radius:9px;font-size:18px;cursor:pointer;line-height:1;")}
             >
               ×
