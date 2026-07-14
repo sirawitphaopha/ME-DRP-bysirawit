@@ -672,10 +672,10 @@ export default function MedDrpApp() {
     if (!f.location) errs.location = true;
     if (f.location === IPD_LOCATION && !String(f.an || "").trim()) errs.an = true; // IPD → ต้องมี AN
     if (!f.reporter) errs.reporter = true;
+    if (!f.severity) errs.severity = true; // ระดับความรุนแรง A–I — บังคับกรอกทั้ง ME และ DRP
     if (type === "med") {
       if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
       if (!(Array.isArray(f.error_nature) ? f.error_nature.length : f.error_nature)) errs.error_nature = true; // ลักษณะความคลาดเคลื่อน
-      if (!f.severity) errs.severity = true;
       if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเหตุการณ์
     } else {
       if (!f.drp_type) errs.drp_type = true;
@@ -1129,7 +1129,7 @@ export default function MedDrpApp() {
     badgeStyle: r.type === "med" ? badgeMed : badgeDrp,
     hn: r.hn || "—",
     cat: r.type === "med" ? r.error_type || "—" : drpLabel(r.drp_type) || "—",
-    severity: r.type === "med" ? r.severity || "—" : "—",
+    severity: r.severity || "—",
     drug: r.drug || "—",
     reporter: r.reporter || "—",
   }));
@@ -1178,7 +1178,7 @@ export default function MedDrpApp() {
         : r.drp_type === "อื่น ๆ" && r.drp_type_other
         ? "อื่น ๆ: " + r.drp_type_other
         : drpLabel(r.drp_type) || "—",
-    severity: r.type === "med" ? r.severity || "—" : "—",
+    severity: r.severity || "—",
     drug: (r.drug || "—") + (r.high_alert ? " ⚠" : "") + (r.lasa ? " 🔁" : ""),
     reporter: r.reporter || "—",
     edited: !!r.edited,
@@ -1220,6 +1220,7 @@ export default function MedDrpApp() {
           ["จุดที่พบ", dt2.location],
           ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
           ["ประเภทปัญหาจากการใช้ยา (DRP)", drpDisp],
+          ["ระดับความรุนแรง (NCC MERP)", dt2.severity],
           ["ยาที่เกี่ยวข้อง", drugDisp],
           ["ธงเตือนยา", flags],
           ["รายละเอียดเหตุการณ์ / สาเหตุ", dt2.cause],
@@ -1262,6 +1263,7 @@ export default function MedDrpApp() {
       : [
           ["วันที่/เวลา", (h.occurred_at || "—") + " " + (h.occurred_time || "")],
           ["ประเภท DRP", drpLabel(h.drp_type)],
+          ["ระดับ", h.severity],
           ["รายละเอียดเหตุการณ์ / สาเหตุ", h.cause],
           ["Intervention", h.intervention],
           ["การแก้ไข / จัดการ", h.management],
@@ -1547,6 +1549,87 @@ export default function MedDrpApp() {
   }
 
   // ---------------- FORM ----------------
+  // ช่องเลือกระดับความรุนแรง A–I (NCC MERP) — ใช้ร่วมทั้ง Med Error และ DRP (บังคับกรอกทั้งคู่)
+  function renderSeverityField() {
+    return (
+      <div style={css("margin-bottom:16px;")}>
+        <div style={css("display:flex;align-items:center;margin-bottom:8px;gap:8px;")}>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;")}>
+            ระดับความรุนแรง <span style={css("color:#94A3B8;font-weight:400;")}>NCC MERP</span>{" "}
+            <span style={css("color:#DC2626;")}>*</span>
+          </label>
+          <HButton
+            onClick={() => setState((st) => ({ showSevLegend: !st.showSevLegend }))}
+            base="margin-left:auto;border:1px solid #F6D89A;background:#FEF7EC;color:#B45309;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:5px;"
+            hover="background:#FDEFD6"
+          >
+            ⓘ {S.showSevLegend ? "ซ่อนความหมาย A–I" : "ดูความหมาย A–I"}
+          </HButton>
+        </div>
+        <div style={css("display:grid;grid-template-columns:1fr 1fr;gap:8px;")}>
+          {SEV_TIERS.map((gm) => (
+            <div key={gm.label} style={css("border:1px solid " + gm.bd + ";background:" + gm.base + ";border-radius:11px;padding:8px 10px;")}>
+              <div style={css("font-size:11px;font-weight:700;color:" + gm.tx + ";margin-bottom:6px;")}>{gm.label}</div>
+              <div style={css("display:flex;gap:5px;")}>
+                {gm.codes.map((code) => {
+                  const sl = f.severity === code;
+                  const stStr = sl
+                    ? "flex:1;min-width:0;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1.5px solid " +
+                      gm.sel +
+                      ";background:" +
+                      gm.sel +
+                      ";color:#fff;font-weight:700;font-size:15px;cursor:pointer;transition:all .12s;box-shadow:0 5px 12px -3px " +
+                      gm.sel +
+                      "99;"
+                    : "flex:1;min-width:0;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1.5px solid " +
+                      gm.bd +
+                      ";background:#fff;color:" +
+                      gm.tx +
+                      ";font-weight:700;font-size:15px;cursor:pointer;transition:all .12s;";
+                  return (
+                    <button key={code} onClick={() => setField("severity", sl ? "" : code)} style={css(stStr)}>
+                      {code}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        {sevObj && <div style={css("margin-top:9px;font-size:13px;color:#B45309;font-weight:500;line-height:1.5;")}>{sevObj.desc}</div>}
+        {S.errors.severity && (
+          <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกระดับความรุนแรง</div>
+        )}
+        {S.showSevLegend && (
+          <div
+            style={css(
+              "margin-top:10px;background:#FBFDFC;border:1px solid #E3EFEC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;"
+            )}
+          >
+            <div style={css("font-size:12.5px;font-weight:700;color:#0B655D;")}>ความหมายระดับความรุนแรง (NCC MERP Index)</div>
+            {SEVERITY.map((s) => {
+              const gm = SEV_TIERS.find((t) => t.codes.includes(s.code))!;
+              return (
+                <div key={s.code} style={css("display:flex;gap:10px;align-items:flex-start;")}>
+                  <span
+                    style={css(
+                      "flex:none;width:24px;height:24px;border-radius:7px;background:" +
+                        gm.sel +
+                        ";color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;"
+                    )}
+                  >
+                    {s.code}
+                  </span>
+                  <span style={css("font-size:12.5px;color:#475569;line-height:1.45;padding-top:3px;")}>{s.desc}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   function renderForm() {
     const isMed = type === "med";
     return (
@@ -2030,82 +2113,8 @@ export default function MedDrpApp() {
           )}
         </div>
 
-        {/* ระดับความรุนแรง */}
-        <div style={css("margin-bottom:16px;")}>
-          <div style={css("display:flex;align-items:center;margin-bottom:8px;gap:8px;")}>
-            <label style={css("font-size:13px;font-weight:600;color:#475569;")}>
-              ระดับความรุนแรง <span style={css("color:#94A3B8;font-weight:400;")}>NCC MERP</span>{" "}
-              <span style={css("color:#DC2626;")}>*</span>
-            </label>
-            <HButton
-              onClick={() => setState((st) => ({ showSevLegend: !st.showSevLegend }))}
-              base="margin-left:auto;border:1px solid #F6D89A;background:#FEF7EC;color:#B45309;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:5px;"
-              hover="background:#FDEFD6"
-            >
-              ⓘ {S.showSevLegend ? "ซ่อนความหมาย A–I" : "ดูความหมาย A–I"}
-            </HButton>
-          </div>
-          <div style={css("display:grid;grid-template-columns:1fr 1fr;gap:8px;")}>
-            {SEV_TIERS.map((gm) => (
-              <div key={gm.label} style={css("border:1px solid " + gm.bd + ";background:" + gm.base + ";border-radius:11px;padding:8px 10px;")}>
-                <div style={css("font-size:11px;font-weight:700;color:" + gm.tx + ";margin-bottom:6px;")}>{gm.label}</div>
-                <div style={css("display:flex;gap:5px;")}>
-                  {gm.codes.map((code) => {
-                    const sl = f.severity === code;
-                    const stStr = sl
-                      ? "flex:1;min-width:0;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1.5px solid " +
-                        gm.sel +
-                        ";background:" +
-                        gm.sel +
-                        ";color:#fff;font-weight:700;font-size:15px;cursor:pointer;transition:all .12s;box-shadow:0 5px 12px -3px " +
-                        gm.sel +
-                        "99;"
-                      : "flex:1;min-width:0;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;border:1.5px solid " +
-                        gm.bd +
-                        ";background:#fff;color:" +
-                        gm.tx +
-                        ";font-weight:700;font-size:15px;cursor:pointer;transition:all .12s;";
-                    return (
-                      <button key={code} onClick={() => setField("severity", sl ? "" : code)} style={css(stStr)}>
-                        {code}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-          {sevObj && <div style={css("margin-top:9px;font-size:13px;color:#B45309;font-weight:500;line-height:1.5;")}>{sevObj.desc}</div>}
-          {S.errors.severity && (
-            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกระดับความรุนแรง</div>
-          )}
-          {S.showSevLegend && (
-            <div
-              style={css(
-                "margin-top:10px;background:#FBFDFC;border:1px solid #E3EFEC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;"
-              )}
-            >
-              <div style={css("font-size:12.5px;font-weight:700;color:#0B655D;")}>ความหมายระดับความรุนแรง (NCC MERP Index)</div>
-              {SEVERITY.map((s) => {
-                const gm = SEV_TIERS.find((t) => t.codes.includes(s.code))!;
-                return (
-                  <div key={s.code} style={css("display:flex;gap:10px;align-items:flex-start;")}>
-                    <span
-                      style={css(
-                        "flex:none;width:24px;height:24px;border-radius:7px;background:" +
-                          gm.sel +
-                          ";color:#fff;font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:center;"
-                      )}
-                    >
-                      {s.code}
-                    </span>
-                    <span style={css("font-size:12.5px;color:#475569;line-height:1.45;padding-top:3px;")}>{s.desc}</span>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        {/* ระดับความรุนแรง A–I (ใช้ช่องร่วมกับ DRP) */}
+        {renderSeverityField()}
 
         {/* ชื่อยา */}
         <div style={css("margin-bottom:16px;")}>
@@ -2260,6 +2269,9 @@ export default function MedDrpApp() {
             <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกรายละเอียดเหตุการณ์ / สาเหตุ</div>
           )}
         </div>
+
+        {/* ระดับความรุนแรง A–I — DRP ก็ให้เลือกได้เหมือน ME (บังคับกรอก) · บรรยายเหตุการณ์เสร็จ → ให้คะแนนความรุนแรง */}
+        {renderSeverityField()}
 
         {/* เภสัชกรจัดการเอง → ไม่ได้เสนอแพทย์ จึงไม่มีผลตอบรับจากแพทย์ (ซ่อนช่อง + ล้างค่าเดิม) */}
         <div style={css("margin-bottom:16px;")}>
@@ -3248,6 +3260,17 @@ export default function MedDrpApp() {
             <div>
               <label style={editLabel}>รายละเอียดเหตุการณ์ / สาเหตุ</label>
               <HTextarea value={ef.cause || ""} onChange={(e) => setEf("cause", e.target.value)} rows={3} base={editTextarea} focus={INPUT_FOCUS} />
+            </div>
+            <div>
+              <label style={editLabel}>ระดับ NCC MERP</label>
+              <select value={ef.severity || ""} onChange={(e) => setEf("severity", e.target.value)} style={css(editInputSelect)}>
+                <option value="">—</option>
+                {severityOpts.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <HButton
