@@ -25,6 +25,8 @@ export interface Incident {
   error_nature_other?: string;
   severity?: string;
   management?: string;
+  managed?: boolean; // ติ๊ก "แก้ไขเรียบร้อยแล้ว" (ไม่ต้องพิมพ์บรรยายก็ได้)
+  pharmacist_only?: boolean; // DRP: เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์ (ไม่มีผลตอบรับจากแพทย์)
 
   // DRP
   drp_type?: string;
@@ -66,6 +68,8 @@ export interface FormState {
   attachment: string | null;
   detail: string;
   management: string;
+  managed: boolean;
+  pharmacist_only: boolean;
   reporter: string;
 }
 

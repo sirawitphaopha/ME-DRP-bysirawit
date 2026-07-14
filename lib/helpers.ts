@@ -1,5 +1,5 @@
 import { Drug, FormState, Incident, RecordFilter } from "./types";
-import { INTERVENTIONS, LOCATIONS, OUTCOMES } from "./constants";
+import { DRP_TYPES, LOCATIONS, OUTCOMES } from "./constants";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
@@ -55,7 +55,7 @@ export function emptyForm(defaultReporter: string, keep?: Partial<Pick<FormState
     drp_type: "",
     drp_type_other: "",
     cause: "",
-    intervention: INTERVENTIONS[0],
+    intervention: "", // ต้องว่าง — เดิมค้างค่าแรกไว้ ทำให้บันทึกค่าที่ไม่ได้ตั้งใจเลือก (การบังคับกรอกไม่มีผล)
     outcome: "",
     drugs: [""],
     drug: "",
@@ -64,6 +64,8 @@ export function emptyForm(defaultReporter: string, keep?: Partial<Pick<FormState
     attachment: null,
     detail: "",
     management: "",
+    managed: false,
+    pharmacist_only: false,
     reporter: keep.reporter != null ? keep.reporter : defaultReporter || "",
   };
 }
@@ -106,6 +108,13 @@ export function drugArr(r: Incident): string[] {
 export function outcomeLabel(k?: string): string {
   const o = OUTCOMES.find((x) => x.key === k);
   return o ? o.label : k || "";
+}
+
+// แปลงค่าประเภท DRP ที่เก็บในฐานข้อมูล (key) → ป้ายที่โชว์ (ไทย + วงเล็บอังกฤษ)
+// ค่าเก่าที่ไม่อยู่ในลิสต์ ให้โชว์ตามเดิม
+export function drpLabel(k?: string): string {
+  const t = DRP_TYPES.find((x) => x.key === k);
+  return t ? t.label || t.key : k || "";
 }
 
 export function natureToArray(v: string[] | string | undefined): string[] {

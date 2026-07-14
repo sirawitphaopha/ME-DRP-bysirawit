@@ -18,6 +18,7 @@ import {
   THMON,
 } from "@/lib/constants";
 import {
+  drpLabel,
   drugArr,
   drugText,
   emptyFilter,
@@ -33,7 +34,15 @@ import {
   today,
 } from "@/lib/helpers";
 import { seed } from "@/lib/seed";
-import { envConfig, fetchDrugs, fetchIncidents, insertIncident, isConfigured, updateIncident } from "@/lib/data";
+import {
+  envConfig,
+  fetchDrugs,
+  fetchIncidents,
+  insertIncident,
+  isConfigured,
+  subscribeIncidents,
+  updateIncident,
+} from "@/lib/data";
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
 import { DashRange, Drug, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
@@ -64,6 +73,7 @@ interface AppState {
   kpiAnim: number[];
   showSevLegend: boolean;
   showNatureLegend: boolean;
+  showDrpLegend: boolean;
   errors: Record<string, boolean>;
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
@@ -158,6 +168,7 @@ export default function MedDrpApp() {
     kpiAnim: [0, 0, 0, 0],
     showSevLegend: false,
     showNatureLegend: false,
+    showDrpLegend: false,
     errors: {},
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
@@ -353,6 +364,61 @@ export default function MedDrpApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------- Realtime: ข้อมูลสดข้ามเครื่อง ----------
+  // ดึงข้อมูลใหม่ทั้งชุดแบบเงียบ (ไม่ล้างหน้าจอระหว่างรอ) แล้วทับ state + cache ในเครื่อง
+  // แจ้งเตือนเฉพาะตอนข้อมูลเปลี่ยนจริง — เครื่องที่เป็นคนบันทึกเองจะไม่เด้งซ้ำ (state ตรงกับ server อยู่แล้ว)
+  const refreshRecords = useCallback(async () => {
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) return;
+    try {
+      const d = await fetchIncidents(cfg);
+      const same = JSON.stringify(d) === JSON.stringify(stateRef.current.records || []);
+      if (same) return;
+      setState({ records: d });
+      // ถ้ากำลังเปิดหน้ารายละเอียดของเคสที่เพิ่งถูกแก้จากอีกเครื่อง → อัปเดตหน้าที่เปิดอยู่ด้วย
+      const open = stateRef.current.detail;
+      if (open) {
+        const fresh = d.find((r) => r.id === open.id);
+        if (fresh) setState({ detail: fresh });
+      }
+      try {
+        localStorage.setItem(REC_KEY, JSON.stringify(d));
+      } catch {}
+      flash("อัปเดตข้อมูลล่าสุดจากเครื่องอื่นแล้ว ✓");
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setState]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const cfg = state.cfg;
+    if (!isConfigured(cfg)) return;
+
+    // รวบ event ที่มาถี่ ๆ (บันทึกรวดเดียวหลายเคส) ให้ดึงข้อมูลรอบเดียว
+    let deb: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (deb) clearTimeout(deb);
+      deb = setTimeout(() => refreshRecords(), 400);
+    };
+
+    const unsub = subscribeIncidents(cfg, schedule);
+
+    // กันสัญญาณหลุด (โน้ตบุ๊กพับจอ / เน็ตวืบ) — กลับมาที่แท็บเมื่อไหร่ ดึงข้อมูลใหม่รอบหนึ่ง
+    const onVis = () => {
+      if (document.visibilityState === "visible") refreshRecords();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("online", refreshRecords);
+
+    return () => {
+      if (deb) clearTimeout(deb);
+      unsub();
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("online", refreshRecords);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, state.cfg.url, state.cfg.key, refreshRecords]);
+
   // re-animate KPIs เมื่อเข้า dashboard / เปลี่ยนตัวกรอง/ช่วงเวลา/ข้อมูล
   useEffect(() => {
     if (mounted && state.view === "dashboard") animateKpis();
@@ -486,10 +552,9 @@ export default function MedDrpApp() {
       if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเหตุการณ์
     } else {
       if (!f.drp_type) errs.drp_type = true;
-      if (!f.outcome) errs.outcome = true;
-      if (!String(f.cause || "").trim()) errs.cause = true; // สาเหตุของปัญหา
-      if (!f.intervention) errs.intervention = true; // การ Intervention
-      if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเพิ่มเติม
+      if (!f.pharmacist_only && !f.outcome) errs.outcome = true; // เภสัชกรแก้เอง = ไม่มีผลตอบรับจากแพทย์
+      if (!String(f.cause || "").trim()) errs.cause = true; // รายละเอียดเหตุการณ์ / สาเหตุ (ยุบรวมช่องเดิม 2 ช่อง)
+      if (!f.intervention) errs.intervention = true; // การแก้ไข (Intervention)
     }
     if (Object.keys(errs).length) {
       setState({ errors: errs });
@@ -593,6 +658,8 @@ export default function MedDrpApp() {
       "lasa",
       "detail",
       "management",
+      "managed",
+      "pharmacist_only",
       "cause",
       "reporter",
       "edited",
@@ -706,7 +773,7 @@ export default function MedDrpApp() {
   });
   const dmax = Math.max(1, ...Object.values(byDrp), 1);
   const drpBreak = DRP_TYPES.map((t) => ({
-    label: t.key,
+    label: t.label || t.key,
     count: byDrp[t.key] || 0,
     barStyle:
       "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
@@ -839,7 +906,7 @@ export default function MedDrpApp() {
     typeLabel: r.type === "med" ? "Med Error" : "DRP",
     badgeStyle: r.type === "med" ? badgeMed : badgeDrp,
     hn: r.hn || "—",
-    cat: r.type === "med" ? r.error_type || "—" : r.drp_type || "—",
+    cat: r.type === "med" ? r.error_type || "—" : drpLabel(r.drp_type) || "—",
     severity: r.type === "med" ? r.severity || "—" : "—",
     drug: r.drug || "—",
     reporter: r.reporter || "—",
@@ -872,7 +939,8 @@ export default function MedDrpApp() {
   const reporterOpts = Array.from(new Set((S.records || []).map((r) => r.reporter).filter(Boolean))).sort() as string[];
   const errorTypeOpts = ERROR_TYPES.map((t) => t.key);
   const errorNatureOpts = ERROR_NATURE.map((n) => n.key);
-  const drpTypeOpts = DRP_TYPES.map((t) => t.key);
+  // value = ค่าที่เก็บในฐานข้อมูล · label = ป้ายที่โชว์ (ไทย + วงเล็บอังกฤษ)
+  const drpTypeOpts = DRP_TYPES.map((t) => ({ value: t.key, label: t.label || t.key }));
   const severityOpts = SEVERITY.map((s) => s.code);
   const outcomeOpts = OUTCOMES.map((o) => ({ value: o.key, label: o.label }));
   const recRows = rlist.map((r) => ({
@@ -887,7 +955,7 @@ export default function MedDrpApp() {
         ? natureText(r.error_type)
         : r.drp_type === "อื่น ๆ" && r.drp_type_other
         ? "อื่น ๆ: " + r.drp_type_other
-        : r.drp_type || "—",
+        : drpLabel(r.drp_type) || "—",
     severity: r.type === "med" ? r.severity || "—" : "—",
     drug: (r.drug || "—") + (r.high_alert ? " ⚠" : "") + (r.lasa ? " 🔁" : ""),
     reporter: r.reporter || "—",
@@ -897,7 +965,7 @@ export default function MedDrpApp() {
   // detail modal
   const dt2 = S.detail;
   const isMed2 = dt2?.type === "med";
-  let detailRows: { label: string; value: string }[] = [];
+  let detailRows: { label: string; value: string; ok?: string }[] = [];
   const detailBadgeStyle = isMed2
     ? "background:#E7F3F1;color:#0B655D;font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:999px;"
     : "background:#FEF3E2;color:#B45309;font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:999px;";
@@ -906,7 +974,7 @@ export default function MedDrpApp() {
     const tval = dt2.shift || shiftOf(dt2.occurred_time) || "—";
     const natureDisp = natureText(dt2.error_nature, dt2.error_nature_other);
     const drugDisp = drugText(dt2);
-    const drpDisp = dt2.drp_type === "อื่น ๆ" && dt2.drp_type_other ? "อื่น ๆ — " + dt2.drp_type_other : dt2.drp_type;
+    const drpDisp = dt2.drp_type === "อื่น ๆ" && dt2.drp_type_other ? "อื่น ๆ — " + dt2.drp_type_other : drpLabel(dt2.drp_type);
     const rows: [string, unknown][] = isMed2
       ? [
           ["วันที่เกิดเหตุ", dt2.occurred_at],
@@ -929,16 +997,24 @@ export default function MedDrpApp() {
           ["HN ผู้ป่วย", dt2.hn],
           ["จุดที่พบ", dt2.location],
           ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
-          ["ประเภทปัญหา DRP", drpDisp],
+          ["ประเภทปัญหาจากการใช้ยา (DRP)", drpDisp],
           ["ยาที่เกี่ยวข้อง", drugDisp],
           ["ธงเตือนยา", flags],
-          ["สาเหตุของปัญหา", dt2.cause],
-          ["การ Intervention", dt2.intervention],
-          ["ผลลัพธ์", outcomeLabel(dt2.outcome)],
-          ["รายละเอียดเพิ่มเติม", dt2.detail],
+          ["รายละเอียดเหตุการณ์ / สาเหตุ", dt2.cause],
+          ["การแก้ไข (Intervention)", dt2.intervention],
+          // เภสัชกรแก้เอง = ไม่ได้เสนอแพทย์ จึงไม่มีผลตอบรับ
+          ["ผลตอบรับจากแพทย์", dt2.pharmacist_only ? "เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์" : outcomeLabel(dt2.outcome)],
+          ...(dt2.detail ? ([["รายละเอียดเพิ่มเติม", dt2.detail]] as [string, unknown][]) : []), // เคสเก่าที่เคยมีช่องนี้
           ["ผู้รายงาน", dt2.reporter],
         ];
-    detailRows = rows.map(([label, value]) => ({ label, value: value === "" || value == null ? "—" : String(value) }));
+    detailRows = rows.map(([label, value]) => {
+      // ป้ายเขียว: Med Error ที่ติ๊กว่าจัดการแล้ว · DRP ที่เภสัชกรแก้เอง
+      let ok = "";
+      if (label === "การแก้ไข / จัดการ" && dt2.managed) ok = "✓ แก้ไขแล้ว";
+      if (label === "ผลตอบรับจากแพทย์" && dt2.pharmacist_only) ok = "✓ เภสัชกรแก้ไขเอง";
+      const v = value === "" || value == null ? "—" : String(value);
+      return { label, value: ok === "✓ เภสัชกรแก้ไขเอง" ? "—" : v, ok };
+    });
   }
   const historyList = ((dt2 && dt2.history) || []).map((h, idx) => {
     const isM = h.type === "med";
@@ -955,10 +1031,10 @@ export default function MedDrpApp() {
         ]
       : [
           ["วันที่/เวลา", (h.occurred_at || "—") + " " + (h.occurred_time || "")],
-          ["ประเภท DRP", h.drp_type],
-          ["สาเหตุ", h.cause],
+          ["ประเภท DRP", drpLabel(h.drp_type)],
+          ["รายละเอียดเหตุการณ์ / สาเหตุ", h.cause],
           ["Intervention", h.intervention],
-          ["ผลลัพธ์", outcomeLabel(h.outcome)],
+          ["ผลตอบรับจากแพทย์", h.pharmacist_only ? "เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์" : outcomeLabel(h.outcome)],
           ["ยา", h.drug],
           ["รายละเอียด", h.detail],
           ["ผู้รายงาน", h.reporter],
@@ -1324,13 +1400,17 @@ export default function MedDrpApp() {
                   </button>
                 </div>
               )}
-              <HFileLabel
-                base="display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed #C6DED9;border-radius:12px;padding:14px;font-size:14px;color:#0B655D;font-weight:600;cursor:pointer;margin-top:8px;background:#F5FAF9;"
-                hover="border-color:#F5A623;color:#B45309"
-                onChange={onAttachFile}
+              {/* ปิดใช้งานชั่วคราว — รอย้ายไปเก็บรูปที่ Cloudflare (แปลง webp + ย่อขนาด) แทนการฝัง base64 ลงฐานข้อมูล */}
+              <div
+                style={css(
+                  "display:flex;align-items:center;justify-content:center;gap:8px;border:1.5px dashed #E2E8F0;border-radius:12px;padding:14px;font-size:14px;color:#94A3B8;font-weight:600;margin-top:8px;background:#F8FAFC;cursor:not-allowed;user-select:none;"
+                )}
               >
                 📎 เลือกรูปเพื่อแนบ
-              </HFileLabel>
+                <span style={css("background:#E2E8F0;color:#64748B;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;")}>
+                  ยังใช้ไม่ได้
+                </span>
+              </div>
             </div>
 
             {/* ผู้รายงาน */}
@@ -1743,11 +1823,32 @@ export default function MedDrpApp() {
         </div>
         <div style={css("margin-bottom:18px;")}>
           <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>การแก้ไข / จัดการ</label>
+          {/* ติ๊กพอ = ถือว่าจัดการเรียบร้อย (บางเคสไม่มีอะไรต้องบรรยาย) · จะพิมพ์รายละเอียดเพิ่มด้วยก็ได้ */}
+          <HButton
+            onClick={() => setField("managed", !f.managed)}
+            base={
+              "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;margin-bottom:8px;padding:11px 14px;border-radius:11px;font-size:14.5px;font-weight:600;cursor:pointer;transition:all .15s;" +
+              (f.managed
+                ? "border:1.5px solid #0F8A80;background:#E8F5F3;color:#0B655D;"
+                : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
+            }
+            hover={f.managed ? "background:#DDEFEC;" : "border-color:#0F8A80;color:#0F8A80;"}
+          >
+            <span
+              style={css(
+                "width:20px;height:20px;flex:0 0 20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;" +
+                  (f.managed ? "background:#0F8A80;color:#fff;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
+              )}
+            >
+              ✓
+            </span>
+            แก้ไขเรียบร้อยแล้ว
+          </HButton>
           <HTextarea
             value={f.management}
             onChange={(e) => setField("management", e.target.value)}
             rows={2}
-            placeholder="ดำเนินการอย่างไรต่อ…"
+            placeholder="ดำเนินการอย่างไรต่อ… (จะพิมพ์เพิ่มหรือไม่ก็ได้)"
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
             focus={INPUT_FOCUS}
           />
@@ -1761,9 +1862,34 @@ export default function MedDrpApp() {
     return (
       <div>
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
-            ประเภทปัญหา DRP <span style={css("color:#DC2626;")}>*</span>
-          </label>
+          <div style={css("display:flex;align-items:center;margin-bottom:8px;gap:8px;")}>
+            <label style={css("font-size:13px;font-weight:600;color:#475569;")}>
+              ประเภทปัญหาจากการใช้ยา (DRP) <span style={css("color:#DC2626;")}>*</span>
+            </label>
+            <HButton
+              onClick={() => setState((st) => ({ showDrpLegend: !st.showDrpLegend }))}
+              base="margin-left:auto;border:1px solid #F6D89A;background:#FEF7EC;color:#B45309;font-size:12px;font-weight:600;padding:4px 11px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:5px;white-space:nowrap;"
+              hover="background:#FDEFD6"
+            >
+              ⓘ {S.showDrpLegend ? "ซ่อนความหมาย" : "ดูความหมาย"}
+            </HButton>
+          </div>
+          {/* ความหมายฉบับเต็มทั้ง 10 หมวด — รูปแบบเดียวกับฝั่ง Med Error */}
+          {S.showDrpLegend && (
+            <div
+              style={css(
+                "margin-bottom:10px;background:#FBFDFC;border:1px solid #E3EFEC;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;"
+              )}
+            >
+              <div style={css("font-size:12.5px;font-weight:700;color:#0B655D;")}>ความหมายประเภทปัญหาจากการใช้ยา (DRP)</div>
+              {DRP_TYPES.map((t) => (
+                <div key={t.key} style={css("display:flex;flex-direction:column;gap:2px;")}>
+                  <span style={css("font-size:12.5px;font-weight:700;color:#0B655D;")}>{t.label || t.key}</span>
+                  <span style={css("font-size:12.5px;color:#475569;line-height:1.45;")}>{t.desc}</span>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={css("display:flex;flex-wrap:wrap;gap:8px;")}>
             {DRP_TYPES.map((t) => (
               <button
@@ -1771,7 +1897,7 @@ export default function MedDrpApp() {
                 onClick={() => setField("drp_type", f.drp_type === t.key ? "" : t.key)}
                 style={css(chip(f.drp_type === t.key))}
               >
-                {t.key}
+                {t.label || t.key}
               </button>
             ))}
           </div>
@@ -1805,75 +1931,97 @@ export default function MedDrpApp() {
           {renderDrugRows()}
         </div>
 
+        {/* ยุบ "สาเหตุของปัญหา" + "รายละเอียดเพิ่มเติม" เหลือช่องเดียว — เดิมซ้ำซ้อน คนกรอกงงว่าอะไรลงช่องไหน
+            ยังเก็บลงคอลัมน์ cause เหมือนเดิม เคสเก่าจึงอ่านได้ตามปกติ */}
         <div style={css("margin-bottom:16px;")}>
           <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
-            สาเหตุของปัญหา <span style={css("color:#DC2626;")}>*</span>
+            รายละเอียดเหตุการณ์ / สาเหตุ <span style={css("color:#DC2626;")}>*</span>
           </label>
           <HTextarea
             value={f.cause}
             onChange={(e) => setField("cause", e.target.value)}
-            rows={2}
-            placeholder="ระบุสาเหตุ…"
+            rows={3}
+            placeholder="เล่าว่าพบปัญหาอะไร และเกิดจากอะไร…"
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
             focus={INPUT_FOCUS}
           />
           {S.errors.cause && (
-            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกสาเหตุของปัญหา</div>
+            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกรายละเอียดเหตุการณ์ / สาเหตุ</div>
           )}
         </div>
 
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>การ Intervention <span style={css("color:#DC2626;")}>*</span></label>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
+            การแก้ไข (Intervention) <span style={css("color:#DC2626;")}>*</span>
+          </label>
           <HSelect
             value={f.intervention}
             onChange={(e) => setField("intervention", e.target.value)}
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;"
             focus={INPUT_FOCUS}
           >
+            {/* ค่าเริ่มต้นต้องว่าง — เดิมค้างค่าแรกไว้ ทำให้บันทึกค่าที่ไม่ได้ตั้งใจเลือก */}
+            <option value="">— เลือกการแก้ไข —</option>
             {INTERVENTIONS.map((iv) => (
               <option key={iv} value={iv}>
                 {iv}
               </option>
             ))}
           </HSelect>
+          {S.errors.intervention && (
+            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกการแก้ไข</div>
+          )}
         </div>
 
+        {/* เภสัชกรจัดการเอง → ไม่ได้เสนอแพทย์ จึงไม่มีผลตอบรับจากแพทย์ (ซ่อนช่อง + ล้างค่าเดิม) */}
         <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
-            ผลลัพธ์การ Intervention <span style={css("color:#DC2626;")}>*</span>
-          </label>
-          <div style={css("display:flex;gap:8px;flex-wrap:wrap;")}>
-            {OUTCOMES.map((o) => (
-              <button
-                key={o.key}
-                onClick={() => setField("outcome", f.outcome === o.key ? "" : o.key)}
-                style={css(chip(f.outcome === o.key))}
-              >
-                {o.label}
-              </button>
-            ))}
-          </div>
-          {S.errors.outcome && (
-            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกผลลัพธ์</div>
-          )}
+          <HButton
+            onClick={() => {
+              const next = !f.pharmacist_only;
+              setField("pharmacist_only", next);
+              if (next) setField("outcome", "");
+            }}
+            base={
+              "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;padding:11px 14px;border-radius:11px;font-size:14.5px;font-weight:600;cursor:pointer;transition:all .15s;" +
+              (f.pharmacist_only
+                ? "border:1.5px solid #0F8A80;background:#E8F5F3;color:#0B655D;"
+                : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
+            }
+            hover={f.pharmacist_only ? "background:#DDEFEC;" : "border-color:#0F8A80;color:#0F8A80;"}
+          >
+            <span
+              style={css(
+                "width:20px;height:20px;flex:0 0 20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;" +
+                  (f.pharmacist_only ? "background:#0F8A80;color:#fff;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
+              )}
+            >
+              ✓
+            </span>
+            เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์
+          </HButton>
         </div>
 
-        <div style={css("margin-bottom:18px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
-            รายละเอียดเพิ่มเติม <span style={css("color:#DC2626;")}>*</span>
-          </label>
-          <HTextarea
-            value={f.detail}
-            onChange={(e) => setField("detail", e.target.value)}
-            rows={2}
-            placeholder="บันทึกเพิ่มเติม…"
-            base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
-            focus={INPUT_FOCUS}
-          />
-          {S.errors.detail && (
-            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณากรอกรายละเอียดเพิ่มเติม</div>
-          )}
-        </div>
+        {!f.pharmacist_only && (
+          <div style={css("margin-bottom:16px;")}>
+            <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
+              ผลตอบรับจากแพทย์ <span style={css("color:#DC2626;")}>*</span>
+            </label>
+            <div style={css("display:flex;gap:8px;flex-wrap:wrap;")}>
+              {OUTCOMES.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setField("outcome", f.outcome === o.key ? "" : o.key)}
+                  style={css(chip(f.outcome === o.key))}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
+            {S.errors.outcome && (
+              <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกผลตอบรับจากแพทย์</div>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -2020,7 +2168,7 @@ export default function MedDrpApp() {
 
         {/* intervention outcome */}
         <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;margin-bottom:16px;")}>
-          <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;")}>ผลลัพธ์การ Intervention (DRP)</div>
+          <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:14px;")}>ผลตอบรับจากแพทย์ (DRP)</div>
           <div style={css("display:grid;grid-template-columns:repeat(3,1fr);gap:12px;")}>
             {interv.map((i) => (
               <div key={i.label} style={css(i.cardStyle)}>
@@ -2276,7 +2424,7 @@ export default function MedDrpApp() {
             {renderFilterField("ระดับ NCC MERP", renderFilterSelect(rf.severity, (v) => setRF("severity", v), severityOpts))}
             {renderFilterField("ประเภท DRP", renderFilterSelect(rf.drp_type, (v) => setRF("drp_type", v), drpTypeOpts))}
             {renderFilterField(
-              "ผลลัพธ์ DRP",
+              "ผลตอบรับจากแพทย์",
               <select
                 value={rf.outcome}
                 onChange={(e) => setRF("outcome", e.target.value)}
@@ -2423,7 +2571,8 @@ export default function MedDrpApp() {
       </div>
     );
   }
-  function renderFilterSelect(value: string, onChange: (v: string) => void, opts: string[]) {
+  // opts รับได้ทั้งข้อความล้วน และแบบแยก value (ค่าที่เก็บ) / label (ป้ายที่โชว์)
+  function renderFilterSelect(value: string, onChange: (v: string) => void, opts: (string | { value: string; label: string })[]) {
     return (
       <select
         value={value}
@@ -2431,11 +2580,15 @@ export default function MedDrpApp() {
         style={css("width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:9px 32px 9px 12px;font-size:14px;background-color:#fff;outline:none;")}
       >
         <option value="">ทั้งหมด</option>
-        {opts.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
+        {opts.map((o) => {
+          const v = typeof o === "string" ? o : o.value;
+          const lb = typeof o === "string" ? o : o.label;
+          return (
+            <option key={v} value={v}>
+              {lb}
+            </option>
+          );
+        })}
       </select>
     );
   }
@@ -2478,7 +2631,18 @@ export default function MedDrpApp() {
               {detailRows.map((d, i) => (
                 <div key={i} style={css("display:flex;gap:14px;padding:11px 0;border-bottom:1px solid #F4F8F7;")}>
                   <div style={css("flex:none;width:150px;font-size:13px;color:#64748B;font-weight:600;")}>{d.label}</div>
-                  <div style={css("flex:1;font-size:14px;color:#0F172A;line-height:1.5;")}>{d.value}</div>
+                  <div style={css("flex:1;font-size:14px;color:#0F172A;line-height:1.5;")}>
+                    {d.ok && (
+                      <span
+                        style={css(
+                          "display:inline-block;background:#E8F5F3;color:#0B655D;font-size:12.5px;font-weight:700;padding:3px 10px;border-radius:999px;margin-right:8px;"
+                        )}
+                      >
+                        {d.ok}
+                      </span>
+                    )}
+                    {d.ok && d.value === "—" ? null : d.value}
+                  </div>
                 </div>
               ))}
               {dt2.attachment && (
@@ -2635,23 +2799,24 @@ export default function MedDrpApp() {
               </div>
             )}
             <div>
-              <label style={editLabel}>ประเภทปัญหา DRP</label>
+              <label style={editLabel}>ประเภทปัญหาจากการใช้ยา (DRP)</label>
               <select value={ef.drp_type || ""} onChange={(e) => setEf("drp_type", e.target.value)} style={css(editInputSelect)}>
                 <option value="">—</option>
                 {drpTypeOpts.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
+                  <option key={o.value} value={o.value}>
+                    {o.label}
                   </option>
                 ))}
               </select>
             </div>
             <div>
-              <label style={editLabel}>สาเหตุ</label>
-              <HTextarea value={ef.cause || ""} onChange={(e) => setEf("cause", e.target.value)} rows={2} base={editTextarea} focus={INPUT_FOCUS} />
+              <label style={editLabel}>รายละเอียดเหตุการณ์ / สาเหตุ</label>
+              <HTextarea value={ef.cause || ""} onChange={(e) => setEf("cause", e.target.value)} rows={3} base={editTextarea} focus={INPUT_FOCUS} />
             </div>
             <div>
-              <label style={editLabel}>Intervention</label>
+              <label style={editLabel}>การแก้ไข (Intervention)</label>
               <select value={ef.intervention || ""} onChange={(e) => setEf("intervention", e.target.value)} style={css(editInputSelect)}>
+                <option value="">— เลือกการแก้ไข —</option>
                 {INTERVENTIONS.map((o) => (
                   <option key={o} value={o}>
                     {o}
@@ -2660,16 +2825,44 @@ export default function MedDrpApp() {
               </select>
             </div>
             <div>
-              <label style={editLabel}>ผลลัพธ์</label>
-              <select value={ef.outcome || ""} onChange={(e) => setEf("outcome", e.target.value)} style={css(editInputSelect)}>
-                <option value="">—</option>
-                {outcomeOpts.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
+              <HButton
+                onClick={() => {
+                  const next = !ef.pharmacist_only;
+                  setEf("pharmacist_only", next);
+                  if (next) setEf("outcome", "");
+                }}
+                base={
+                  "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;padding:10px 13px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;" +
+                  (ef.pharmacist_only
+                    ? "border:1.5px solid #0F8A80;background:#E8F5F3;color:#0B655D;"
+                    : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
+                }
+                hover={ef.pharmacist_only ? "background:#DDEFEC;" : "border-color:#0F8A80;color:#0F8A80;"}
+              >
+                <span
+                  style={css(
+                    "width:19px;height:19px;flex:0 0 19px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;" +
+                      (ef.pharmacist_only ? "background:#0F8A80;color:#fff;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
+                  )}
+                >
+                  ✓
+                </span>
+                เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์
+              </HButton>
             </div>
+            {!ef.pharmacist_only && (
+              <div>
+                <label style={editLabel}>ผลตอบรับจากแพทย์</label>
+                <select value={ef.outcome || ""} onChange={(e) => setEf("outcome", e.target.value)} style={css(editInputSelect)}>
+                  <option value="">—</option>
+                  {outcomeOpts.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
         )}
 
@@ -2692,6 +2885,26 @@ export default function MedDrpApp() {
         {isEditMed && (
           <div>
             <label style={editLabel}>การแก้ไข / จัดการ</label>
+            <HButton
+              onClick={() => setEf("managed", !ef.managed)}
+              base={
+                "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;margin-bottom:8px;padding:10px 13px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;" +
+                (ef.managed
+                  ? "border:1.5px solid #0F8A80;background:#E8F5F3;color:#0B655D;"
+                  : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
+              }
+              hover={ef.managed ? "background:#DDEFEC;" : "border-color:#0F8A80;color:#0F8A80;"}
+            >
+              <span
+                style={css(
+                  "width:19px;height:19px;flex:0 0 19px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;" +
+                    (ef.managed ? "background:#0F8A80;color:#fff;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
+                )}
+              >
+                ✓
+              </span>
+              แก้ไขเรียบร้อยแล้ว
+            </HButton>
             <HTextarea value={ef.management || ""} onChange={(e) => setEf("management", e.target.value)} rows={2} base={editTextarea} focus={INPUT_FOCUS} />
           </div>
         )}

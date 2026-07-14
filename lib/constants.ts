@@ -1,11 +1,12 @@
 // ค่าคงที่ทั้งหมด — พอร์ตตรงจากดีไซน์ DC (Med Error DRP.dc.html)
 
-export const APP_VERSION = "0.9.6.1";
+export const APP_VERSION = "0.9.7.0";
 
 export interface KeyDesc {
   key: string;
   desc: string;
   th?: string; // ป้ายไทยสั้น ๆ โชว์ในวงเล็บบนปุ่ม (ค่าที่บันทึกยังใช้ key อังกฤษ)
+  label?: string; // ป้ายที่โชว์เต็ม (ไทย + วงเล็บอังกฤษ) — ค่าที่บันทึกลงฐานข้อมูลยังเป็น key เดิม เคสเก่าจึงไม่กระทบ
 }
 export interface CodeDesc {
   code: string;
@@ -32,14 +33,39 @@ export const SEVERITY: CodeDesc[] = [
   { code: "I", desc: "I · เป็นเหตุให้ผู้ป่วยเสียชีวิต" },
 ];
 
+// ประเภทปัญหาจากการใช้ยา (DRP) — ตามหลัก Hepler & Strand (8 หมวดคลาสสิก) + ยาซ้ำซ้อน + อื่น ๆ
+// key = ค่าที่บันทึกลงฐานข้อมูล (ห้ามแก้ของหมวดเดิม ไม่งั้นเคสเก่าเพี้ยน) · label = ป้ายที่โชว์บนหน้าจอ
 export const DRP_TYPES: KeyDesc[] = [
-  { key: "ยาไม่เหมาะสม", desc: "เลือกใช้ยาไม่เหมาะสมกับผู้ป่วย/ข้อบ่งใช้" },
-  { key: "ขนาดยา", desc: "ขนาด/ความถี่ยาไม่เหมาะสม (สูงหรือต่ำเกินไป)" },
-  { key: "Drug interaction", desc: "ปฏิกิริยาระหว่างยาที่มีนัยสำคัญ" },
-  { key: "ยาซ้ำซ้อน", desc: "ได้รับยาซ้ำซ้อน/กลุ่มออกฤทธิ์เดียวกัน" },
-  { key: "ADR/แพ้ยา", desc: "อาการไม่พึงประสงค์ หรือประวัติแพ้ยา" },
-  { key: "Adherence", desc: "ผู้ป่วยใช้ยาไม่ถูกต้อง/ไม่ร่วมมือ" },
-  { key: "อื่น ๆ", desc: "ปัญหาอื่น ๆ ที่เกี่ยวกับการใช้ยา" },
+  {
+    key: "Untreated indication",
+    label: "มีข้อบ่งใช้แต่ไม่ได้รับยา (Untreated indication)",
+    desc: "มีภาวะ/โรคที่ควรได้รับยา แต่ผู้ป่วยไม่ได้รับการรักษา",
+  },
+  {
+    key: "Drug use without indication",
+    label: "ได้ยาโดยไม่มีข้อบ่งใช้ (Drug use without indication)",
+    desc: "ได้รับยาทั้งที่ไม่มีข้อบ่งใช้รองรับ",
+  },
+  {
+    key: "ยาไม่เหมาะสม",
+    label: "เลือกใช้ยาไม่เหมาะสม (Improper drug selection)",
+    desc: "มีข้อบ่งใช้ แต่เลือกตัวยาไม่เหมาะกับผู้ป่วย (ข้อห้ามใช้ ไต ตับ อายุ ตั้งครรภ์)",
+  },
+  {
+    key: "Subtherapeutic dosage",
+    label: "ขนาดยาต่ำเกินไป (Subtherapeutic dosage)",
+    desc: "ขนาด/ความถี่ต่ำกว่าที่ควร ทำให้ไม่ได้ผลการรักษา",
+  },
+  { key: "Overdosage", label: "ขนาดยาสูงเกินไป (Overdosage)", desc: "ขนาด/ความถี่สูงเกินไป เสี่ยงเกิดพิษจากยา" },
+  { key: "ADR/แพ้ยา", label: "อาการไม่พึงประสงค์/แพ้ยา (ADR)", desc: "เกิดอาการไม่พึงประสงค์จากยา หรือมีประวัติแพ้ยา" },
+  { key: "Drug interaction", label: "ยาตีกัน (Drug interaction)", desc: "ปฏิกิริยาระหว่างยาที่มีนัยสำคัญทางคลินิก" },
+  {
+    key: "Non-adherence",
+    label: "ไม่ได้รับ/ไม่ใช้ยาตามสั่ง (Non-adherence)",
+    desc: "ผู้ป่วยไม่ได้รับยาจริง หรือใช้ยาไม่ถูกต้อง/ไม่ร่วมมือในการใช้ยา",
+  },
+  { key: "ยาซ้ำซ้อน", label: "ยาซ้ำซ้อน (Therapeutic duplication)", desc: "ได้รับยาซ้ำซ้อน/กลุ่มออกฤทธิ์เดียวกัน" },
+  { key: "อื่น ๆ", label: "อื่น ๆ (Other)", desc: "ปัญหาอื่น ๆ ที่เกี่ยวกับการใช้ยา" },
 ];
 
 export interface Outcome {
@@ -47,9 +73,9 @@ export interface Outcome {
   label: string;
 }
 export const OUTCOMES: Outcome[] = [
-  { key: "Accepted", label: "แพทย์รับข้อเสนอ" },
-  { key: "Rejected", label: "ไม่รับข้อเสนอ" },
-  { key: "Pending", label: "รอผล" },
+  { key: "Accepted", label: "แพทย์รับข้อเสนอ (Accepted)" },
+  { key: "Rejected", label: "ไม่รับข้อเสนอ (Rejected)" },
+  { key: "Pending", label: "รอผล (Pending)" },
 ];
 
 export const LOCATIONS = ["ห้องยา OPD ทั่วไป", "ห้องยา OPD NCD", "ห้องยา IPD"];

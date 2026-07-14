@@ -23,6 +23,8 @@ const COLS = [
   "error_nature_other",
   "severity",
   "management",
+  "managed",
+  "pharmacist_only",
   "drp_type",
   "drp_type_other",
   "cause",
@@ -104,6 +106,30 @@ export async function updateIncident(cfg: SupabaseCfg, rec: Incident): Promise<v
   const c = getClient(cfg);
   const { error } = await c.from("incidents").update(toRow(rec)).eq("id", rec.id);
   if (error) throw error;
+}
+
+// ---------- Realtime (กระจายสัญญาณสด) ----------
+// เปิดสายรับสัญญาณตาราง incidents · 1 ช่องต่อ 1 ตาราง (หลายช่องซ้อนตารางเดียว = ได้ event ไม่ครบ)
+// พอมีเครื่องไหน insert/update/delete → เรียก onChange() ให้แอปดึงข้อมูลใหม่ทั้งชุด
+// (ดึงใหม่ผ่าน API เชื่อถือได้กว่าการแปะค่าจาก payload — ได้ลำดับ/ตัวกรองตรงกับที่ server ให้)
+// คืนค่า = ฟังก์ชันปิดสาย (เรียกตอน component unmount)
+export function subscribeIncidents(
+  cfg: SupabaseCfg,
+  onChange: () => void,
+  onStatus?: (connected: boolean) => void
+): () => void {
+  const c = getClient(cfg);
+  const ch = c
+    .channel("incidents-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "incidents" }, () => onChange())
+    .subscribe((status) => {
+      if (onStatus) onStatus(status === "SUBSCRIBED");
+    });
+  return () => {
+    try {
+      c.removeChannel(ch);
+    } catch {}
+  };
 }
 
 // โหลดคลังยาทั้งหมด (สำหรับ autocomplete · โหลดครั้งเดียวแล้ว cache ในเครื่อง)
