@@ -93,20 +93,67 @@ function dedupUnsynced(pending: Incident[], local: Incident[], serverIds: Set<st
 }
 
 // ตรวจช่องบังคับ — ใช้ร่วมทั้งหน้ากรอกใหม่ (save) และหน้าแก้ไข (saveEdit)
+// #15: จัดรูปแบบ AN → "YY-NNNNN" (YY = ปี พ.ศ. 2 หลักของปีที่เกิดเหตุ · NNNNN = เลขลำดับ 5 หลัก)
+// พิมพ์ "1234" → "69-01234" · พิมพ์ "1" → "69-00001" · พิมพ์เกิน 5 หลัก = ถือว่าใส่ปีมาเอง (เอา 5 ตัวท้ายเป็นลำดับ, ที่เหลือเป็นปี)
+function formatAn(raw: string, occurredAt?: string): string {
+  const digits = String(raw || "").replace(/\D/g, "");
+  if (!digits) return "";
+  let seq: string;
+  let yy: string;
+  if (digits.length > 5) {
+    seq = digits.slice(-5);
+    yy = digits.slice(0, digits.length - 5).slice(-2).padStart(2, "0");
+  } else {
+    seq = digits.padStart(5, "0");
+    const y = parseInt(String(occurredAt || "").slice(0, 4), 10);
+    const ce = isNaN(y) ? new Date().getFullYear() : y;
+    yy = String((ce + 543) % 100).padStart(2, "0"); // แปลง ค.ศ. → พ.ศ. แล้วเอา 2 หลักท้าย
+  }
+  return yy + "-" + seq;
+}
+
+// #17: ค้นหาจากเฉพาะช่องที่ผู้ใช้เห็น (ไม่ใช่ JSON.stringify ทั้งก้อน) — กันพิมพ์ "med"/"true"/"uuid" แล้วเจอทุกเคส
+function matchSearch(r: Incident, q: string): boolean {
+  if (!q) return true;
+  const hay = [
+    r.hn,
+    r.an,
+    r.reporter,
+    r.location,
+    drugText(r),
+    r.detail,
+    r.cause,
+    r.management,
+    natureText(r.error_type),
+    natureText(r.error_nature, r.error_nature_other),
+    drpLabel(r.drp_type),
+    r.drp_type_other,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(q);
+}
+
 function validateIncident(f: Partial<FormState>, type: "med" | "drp"): Record<string, boolean> {
   const errs: Record<string, boolean> = {};
   if (!String(f.hn || "").trim()) errs.hn = true;
   if (!f.occurred_at) errs.occurred_at = true;
   if (!f.location) errs.location = true;
-  if (f.location === IPD_LOCATION && !String(f.an || "").trim()) errs.an = true; // IPD → ต้องมี AN
+  if (f.location === IPD_LOCATION && !/\d/.test(String(f.an || ""))) errs.an = true; // IPD → ต้องมี AN (มีตัวเลขจริง ไม่ใช่ "-" เปล่า)
   if (!f.reporter) errs.reporter = true;
   if (!f.severity) errs.severity = true; // ระดับความรุนแรง A–I — บังคับทั้ง ME และ DRP
   if (type === "med") {
     if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
-    if (!(Array.isArray(f.error_nature) ? f.error_nature.length : f.error_nature)) errs.error_nature = true;
+    const natureArr = Array.isArray(f.error_nature) ? f.error_nature : f.error_nature ? [f.error_nature] : [];
+    if (!natureArr.length) errs.error_nature = true;
+    // #14: เลือก "อื่น ๆ" ต้องระบุข้อความด้วย
+    if (natureArr.includes("อื่น ๆ") && !String(f.error_nature_other || "").trim()) errs.error_nature_other = true;
     if (!String(f.detail || "").trim()) errs.detail = true;
   } else {
     if (!f.drp_type) errs.drp_type = true;
+    // #14: เลือกประเภท DRP "อื่น ๆ" ต้องระบุข้อความด้วย
+    if (f.drp_type === "อื่น ๆ" && !String(f.drp_type_other || "").trim()) errs.drp_type_other = true;
     // บังคับผลตอบรับเฉพาะเคสที่เสนอแพทย์จริง (เลือก "ปรึกษาแพทย์ผู้สั่งใช้" และไม่ได้ติ๊กว่าเภสัชกรแก้เอง)
     if (!f.pharmacist_only && f.intervention === CONSULT_DOCTOR && !f.outcome) errs.outcome = true;
     if (!String(f.cause || "").trim()) errs.cause = true;
@@ -145,6 +192,8 @@ interface AppState {
   showNatureLegend: boolean;
   showDrpLegend: boolean;
   confirmDiscard: boolean; // ป๊อปยืนยันตอนจะปิดหน้าต่างขณะแก้ไขค้างอยู่
+  confirmSwitch: "med" | "drp" | null; // ป๊อปยืนยันตอนจะสลับ ME↔DRP ทั้งที่กรอกฟอร์มค้างอยู่
+  hadAuto: boolean; // ธง High-alert ถูกติดอัตโนมัติจากยา HAD (true) vs ผู้ใช้ติ๊กเอง (false) — ใช้ตัดสินว่าจะปลดธงให้ตอนลบยาไหม
   errors: Record<string, boolean>;
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
@@ -251,6 +300,8 @@ export default function MedDrpApp() {
     showNatureLegend: false,
     showDrpLegend: false,
     confirmDiscard: false,
+    confirmSwitch: null,
+    hadAuto: false,
     errors: {},
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
@@ -296,9 +347,28 @@ export default function MedDrpApp() {
         f.detail ||
         f.management ||
         f.cause ||
+        f.severity || // #16: กรอกแค่ความรุนแรง/การแก้ไข/ผลตอบรับ/AN ก็ถือว่ามีร่าง (เดิมร่างหายถ้ายังไม่กรอกช่องหลัก)
+        f.intervention ||
+        f.outcome ||
+        f.an ||
         (f.error_nature && f.error_nature.length) ||
         (f.drugs && f.drugs.some((x) => x && String(x).trim())))
     );
+
+  // สลับประเภทฟอร์ม ME↔DRP · เคลียร์ค่าเดิม (เก็บแค่ HN/ผู้รายงาน) แล้วเริ่มฟอร์มประเภทใหม่
+  const doSwitchType = (target: "med" | "drp") => {
+    setState((st) => ({ type: target, form: emptyForm(DEFAULT_REPORTER, st.form), errors: {}, confirmSwitch: null, hadAuto: false }));
+    draftSoon();
+  };
+  // #7: ถ้ากรอกฟอร์มค้างอยู่ กดสลับประเภท → เตือนก่อน (กันเผลอกดแล้วข้อมูลที่กรอกหาย) · ฟอร์มว่าง = สลับได้เลย
+  const requestSwitchType = (target: "med" | "drp") => {
+    if (stateRef.current.type === target) return;
+    if (hasDraftContent(stateRef.current.form)) {
+      setState({ confirmSwitch: target });
+      return;
+    }
+    doSwitchType(target);
+  };
 
   // ---------- toast ----------
   const flash = useCallback((msg: string) => {
@@ -572,9 +642,16 @@ export default function MedDrpApp() {
 
     // รวบ event ที่มาถี่ ๆ (บันทึกรวดเดียวหลายเคส) ให้ดึงข้อมูลรอบเดียว
     let deb: ReturnType<typeof setTimeout> | null = null;
+    // #19: ถ้าเปิดหน้าตั้งค่า (ถังขยะ) อยู่ ให้ดึงถังขยะสดด้วย (เครื่องอื่นลบ/กู้คืนแล้วเห็นทันที)
+    const refreshTrashIfOpen = () => {
+      if (stateRef.current.view === "manage") loadTrash();
+    };
     const schedule = () => {
       if (deb) clearTimeout(deb);
-      deb = setTimeout(() => refreshRecords(), 400);
+      deb = setTimeout(() => {
+        refreshRecords();
+        refreshTrashIfOpen();
+      }, 400);
     };
 
     const unsub = subscribeIncidents(cfg, schedule);
@@ -583,11 +660,13 @@ export default function MedDrpApp() {
     const onVis = () => {
       if (document.visibilityState === "visible") {
         refreshRecords();
+        refreshTrashIfOpen();
         flushPending();
       }
     };
     const onOnline = () => {
       refreshRecords();
+      refreshTrashIfOpen();
       flushPending();
     };
     document.addEventListener("visibilitychange", onVis);
@@ -600,7 +679,7 @@ export default function MedDrpApp() {
       window.removeEventListener("online", onOnline);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, state.cfg.url, state.cfg.key, refreshRecords, flushPending]);
+  }, [mounted, state.cfg.url, state.cfg.key, refreshRecords, flushPending, loadTrash]);
 
   // re-animate KPIs เมื่อเข้า dashboard / เปลี่ยนตัวกรอง/ช่วงเวลา/ข้อมูล
   useEffect(() => {
@@ -651,11 +730,36 @@ export default function MedDrpApp() {
     });
     draftSoon();
   };
+  // #12: เปลี่ยนจุดที่พบ — ถ้าไม่ใช่ IPD ให้ล้าง AN ทิ้ง (กันค่า AN ค้างติดเคสที่ไม่ใช่ IPD)
+  const setLocation = (v: string) => {
+    setState((s) => {
+      const errors = { ...s.errors };
+      delete errors.location;
+      const form = { ...s.form, location: v } as FormState;
+      if (v !== IPD_LOCATION) {
+        form.an = "";
+        delete errors.an;
+      }
+      return { form, errors };
+    });
+    draftSoon();
+  };
+  // ยา HAD จาก drugFlatLine จะมี "(HAD)" ต่อท้าย → ใช้ตรวจว่ายังมียา HAD เหลือในรายการไหม
+  const hasHadDrug = (drugs?: string[]) => (drugs || []).some((x) => /\(HAD\)/.test(String(x)));
+  // #13: ถ้าธง High-alert ถูกติดอัตโนมัติจากยา HAD แล้วยา HAD ถูกลบ/แก้ออกจนไม่เหลือ → ปลดธงให้ (แต่ถ้าผู้ใช้ติ๊กเอง hadAuto=false จะไม่แตะ)
+  const clearAutoHad = (s: AppState, form: FormState) => {
+    if (s.hadAuto && !hasHadDrug(form.drugs)) {
+      form.high_alert = false;
+      return false;
+    }
+    return s.hadAuto;
+  };
   const setDrugAt = (i: number, v: string) => {
     setState((s) => {
       const d = (s.form.drugs || [""]).slice();
       d[i] = v;
-      return { form: { ...s.form, drugs: d } };
+      const form = { ...s.form, drugs: d } as FormState;
+      return { form, hadAuto: clearAutoHad(s, form) };
     });
     draftSoon();
   };
@@ -665,18 +769,35 @@ export default function MedDrpApp() {
   };
   // เลือกยาจากรายการ suggest → ใส่เป็นข้อความบรรทัดเดียว + ปิด suggest
   const pickDrug = (i: number, d: Drug) => {
-    setDrugAt(i, drugFlatLine(d));
-    // ยา HAD (High Alert Drug) จากคลังยา → ติดธง High-alert ให้อัตโนมัติ (ผู้ใช้ปลดเองได้ถ้าไม่ต้องการ)
-    if (d.had) setField("high_alert", true);
-    setState({ drugSug: null });
+    setState((s) => {
+      const arr = (s.form.drugs || [""]).slice();
+      arr[i] = drugFlatLine(d);
+      const form = { ...s.form, drugs: arr } as FormState;
+      let hadAuto = s.hadAuto;
+      // ยา HAD (High Alert Drug) จากคลังยา → ติดธง High-alert ให้อัตโนมัติ (ผู้ใช้ปลดเองได้ถ้าไม่ต้องการ)
+      if (d.had) {
+        form.high_alert = true;
+        hadAuto = true;
+      } else {
+        hadAuto = clearAutoHad(s, form); // เปลี่ยนเป็นยาไม่ HAD → ถ้าธงมาจาก auto และไม่เหลือ HAD ให้ปลด
+      }
+      return { form, hadAuto, drugSug: null };
+    });
+    draftSoon();
   };
   const removeDrug = (i: number) => {
     setState((s) => {
       const d = (s.form.drugs || [""]).slice();
       d.splice(i, 1);
       if (!d.length) d.push("");
-      return { form: { ...s.form, drugs: d } };
+      const form = { ...s.form, drugs: d } as FormState;
+      return { form, hadAuto: clearAutoHad(s, form) };
     });
+    draftSoon();
+  };
+  // ติ๊กธง High-alert เอง → ถือเป็นการเลือกด้วยตัวเอง (ปลด hadAuto เพื่อไม่ให้ระบบมาปลดธงให้ทีหลัง)
+  const toggleHighAlert = () => {
+    setState((s) => ({ form: { ...s.form, high_alert: !s.form.high_alert }, hadAuto: false }));
     draftSoon();
   };
   const toggleNature = (k: string) => {
@@ -685,7 +806,13 @@ export default function MedDrpApp() {
       const i = cur.indexOf(k);
       if (i >= 0) cur.splice(i, 1);
       else cur.push(k);
-      return { form: { ...s.form, error_nature: cur } };
+      const form = { ...s.form, error_nature: cur } as FormState;
+      // #14: เลิกเลือก "อื่น ๆ" → ล้างข้อความระบุทิ้ง (กันข้อความค้างติดเคสทั้งที่ไม่ได้เลือกอื่น ๆ แล้ว)
+      if (!cur.includes("อื่น ๆ")) form.error_nature_other = "";
+      const errors = { ...s.errors };
+      delete errors.error_nature;
+      delete errors.error_nature_other;
+      return { form, errors };
     });
     draftSoon();
   };
@@ -734,7 +861,7 @@ export default function MedDrpApp() {
       const Ctor = w.AudioContext || w.webkitAudioContext;
       if (!Ctor) return;
       if (!audioCtxRef.current) audioCtxRef.current = new Ctor();
-      if (audioCtxRef.current.state === "suspended") audioCtxRef.current.resume();
+      if (audioCtxRef.current.state === "suspended") audioCtxRef.current.resume().catch(() => {});
     } catch {}
   };
   const alertFail = () => {
@@ -746,7 +873,7 @@ export default function MedDrpApp() {
     try {
       const ctx = audioCtxRef.current;
       if (!ctx) return;
-      if (ctx.state === "suspended") ctx.resume();
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
       const now = ctx.currentTime;
       [0, 0.28].forEach((t) => {
         const osc = ctx.createOscillator();
@@ -786,6 +913,8 @@ export default function MedDrpApp() {
       shift: shiftOf(f.occurred_time),
       drugs: drugsArr,
       drug: drugsArr.join(", "),
+      // #15: AN เก็บในรูปแบบมาตรฐาน "YY-NNNNN" เสมอ (เผื่อกดบันทึกโดยยังไม่ blur ช่อง AN) · ไม่ใช่ IPD = ไม่เก็บ AN
+      an: f.location === IPD_LOCATION ? formatAn(f.an, f.occurred_at) : "",
       id: uuid(), // UUID ที่ถูกต้องเสมอทุกเบราว์เซอร์ (แก้บั๊ก Safari กรอกแล้วไม่ขึ้นระบบ)
       created_at: new Date().toISOString(),
     };
@@ -801,7 +930,7 @@ export default function MedDrpApp() {
     let sent = true;
     if (isConfigured(cfg)) sent = await pushIncident(cfg, rec);
     if (sent) dequeuePending(rec.id);
-    setState({ saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }) });
+    setState({ saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }), hadAuto: false });
     savingRef.current = false;
     if (sent) {
       setState({ result: "ok", resultRec: null }); // หน้าผล "ส่งสำเร็จ" เต็มจอ
@@ -859,7 +988,13 @@ export default function MedDrpApp() {
     setState({ trashBusy: true });
     if (isConfigured(cfg)) {
       try {
-        await restoreIncident(cfg, id);
+        // #19: ถ้าเครื่องอื่นลบถาวรไปแล้ว restoreIncident จะคืน false (ไม่มีแถวให้กู้) → บอกตามจริง ไม่ขึ้น "กู้คืนแล้ว" หลอก
+        const ok = await restoreIncident(cfg, id);
+        if (!ok) {
+          setState({ trash: (stateRef.current.trash || []).filter((r) => r.id !== id), trashBusy: false });
+          flash("รายงานนี้ถูกลบถาวรไปแล้ว (กู้คืนไม่ได้)");
+          return;
+        }
       } catch {
         flash("กู้คืนไม่สำเร็จ ลองใหม่อีกครั้ง");
         setState({ trashBusy: false });
@@ -908,6 +1043,22 @@ export default function MedDrpApp() {
   const startEdit = () => setState((s) => ({ editMode: true, showHistory: false, editForm: { ...s.detail } }));
   const cancelEdit = () => setState({ editMode: false });
   const setEf = (k: string, v: unknown) => setState((s) => ({ editForm: { ...s.editForm, [k]: v } }));
+  // #12: โหมดแก้ไข — เปลี่ยนจุดที่พบเป็นไม่ใช่ IPD ให้ล้าง AN ทิ้งด้วย
+  const setEfLocation = (v: string) =>
+    setState((s) => ({ editForm: { ...s.editForm, location: v, ...(v !== IPD_LOCATION ? { an: "" } : {}) } }));
+  // #14: เลือกประเภท DRP — กดซ้ำ= ยกเลิก · เปลี่ยนออกจาก "อื่น ๆ" ให้ล้างข้อความระบุทิ้ง
+  const setDrpType = (k: string) => {
+    setState((s) => {
+      const next = s.form.drp_type === k ? "" : k;
+      const form = { ...s.form, drp_type: next } as FormState;
+      if (next !== "อื่น ๆ") form.drp_type_other = "";
+      const errors = { ...s.errors };
+      delete errors.drp_type;
+      delete errors.drp_type_other;
+      return { form, errors };
+    });
+    draftSoon();
+  };
   // #2: หน้าแก้ไข error_type / error_nature เป็น "เลือกได้หลายอัน" (เดิมเป็น select อันเดียว → array หด เหลือค่าเดียว ข้อมูลหาย)
   const efArr = (field: "error_type" | "error_nature"): string[] => {
     const v = (stateRef.current.editForm || {})[field];
@@ -998,7 +1149,11 @@ export default function MedDrpApp() {
       "edit_count",
       "created_at",
     ];
-    const esc = (v: unknown) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+    const esc = (v: unknown) => {
+      let s = String(v == null ? "" : v);
+      if (/^[=+\-@]/.test(s)) s = "'" + s; // #18: กัน formula injection ใน Excel/Sheets (ช่องขึ้นต้น = + - @)
+      return '"' + s.replace(/"/g, '""') + '"';
+    };
     const rows = data.map((r) => cols.map((c) => esc((r as unknown as Record<string, unknown>)[c])).join(","));
     const csv = cols.join(",") + "\n" + rows.join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
@@ -1035,8 +1190,11 @@ export default function MedDrpApp() {
   const medCount = recs.filter((r) => r.type === "med").length;
   const drpCount = recs.filter((r) => r.type === "drp").length;
   const severe = recs.filter((r) => r.type === "med" && ["E", "F", "G", "H", "I"].includes(r.severity || "")).length;
-  const accepted = recs.filter((r) => r.type === "drp" && r.outcome === "Accepted").length;
-  const acceptRate = drpCount ? Math.round((accepted / drpCount) * 100) : 0;
+  // #8: "แพทย์รับข้อเสนอ %" หารด้วยเฉพาะ DRP ที่เสนอแพทย์จริง (เลือก "ปรึกษาแพทย์ผู้สั่งใช้" และไม่ได้ติ๊กเภสัชแก้เอง)
+  //     เดิมหารด้วย DRP ทั้งหมด (รวมเคสที่ไม่ได้เสนอแพทย์) → % ต่ำกว่าจริงมาก
+  const proposed = recs.filter((r) => r.type === "drp" && !r.pharmacist_only && r.intervention === CONSULT_DOCTOR);
+  const accepted = proposed.filter((r) => r.outcome === "Accepted").length;
+  const acceptRate = proposed.length ? Math.round((accepted / proposed.length) * 100) : 0;
   const anim = S.kpiAnim || [0, 0, 0, 0];
   const tg = [total, thisMonth, medCount, drpCount];
   const kpis = [
@@ -1056,7 +1214,10 @@ export default function MedDrpApp() {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push({ key: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"), label: THMON[d.getMonth()] });
   }
-  const mc = months.map((m) => recs.filter((r) => (r.occurred_at || "").slice(0, 7) === m.key).length);
+  // #10: กราฟ "6 เดือนล่าสุด" ต้องโชว์ 6 เดือนจริงเสมอ — ใช้ข้อมูลกรองแค่ประเภท (med/drp) ไม่เอาช่วงวันของ dashRange มาบีบ
+  //      เดิมใช้ recs (ผ่านตัวกรองช่วงวันแล้ว) → เลือกพรีเซ็ต "เดือนนี้/7 วัน" ทำให้กราฟ 6 เดือนหด เหลือแท่งเดียว
+  const monthScopeRecs = (S.records || []).filter((r) => S.dashType === "all" || r.type === S.dashType);
+  const mc = months.map((m) => monthScopeRecs.filter((r) => (r.occurred_at || "").slice(0, 7) === m.key).length);
   const mmax = Math.max(1, ...mc);
   const monthBars = months.map((m, i) => ({
     label: m.label,
@@ -1260,13 +1421,13 @@ export default function MedDrpApp() {
 
   // recent (dashboard table)
   const q = (S.search || "").toLowerCase();
-  const recentFiltered = recs.filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q));
+  const recentFiltered = recs.filter((r) => matchSearch(r, q));
   const recent = recentFiltered.slice(0, 14).map((r) => ({
     date: r.occurred_at,
     typeLabel: r.type === "med" ? "Med Error" : "DRP",
     badgeStyle: r.type === "med" ? badgeMed : badgeDrp,
     hn: r.hn || "—",
-    cat: r.type === "med" ? r.error_type || "—" : drpLabel(r.drp_type) || "—",
+    cat: r.type === "med" ? natureText(r.error_type) : drpLabel(r.drp_type) || "—",
     severity: r.severity || "—",
     drug: r.drug || "—",
     reporter: r.reporter || "—",
@@ -1293,7 +1454,7 @@ export default function MedDrpApp() {
     if (rf.high_alert === "lasa" && !r.lasa) return false;
     if (rf.from && (r.occurred_at || "") < rf.from) return false;
     if (rf.to && (r.occurred_at || "") > rf.to) return false;
-    if (rq && !JSON.stringify(r).toLowerCase().includes(rq)) return false;
+    if (!matchSearch(r, rq)) return false;
     return true;
   });
   const reporterOpts = Array.from(new Set((S.records || []).map((r) => r.reporter).filter(Boolean))).sort() as string[];
@@ -1562,6 +1723,8 @@ export default function MedDrpApp() {
           const hn = (t.hn || "").trim();
           const confWord = hn || "ลบถาวร";
           const ok = S.hardInput.trim() === confWord;
+          const idLabel = t.type === "med" ? "Med Error" : "DRP";
+          const drugLine = drugText(t);
           return (
             <div
               style={css(
@@ -1576,6 +1739,18 @@ export default function MedDrpApp() {
                 <div style={css("background:#FDECEC;border:1px solid #F3C5C2;border-radius:11px;padding:11px 13px;font-size:12.5px;color:#B42318;line-height:1.55;margin-bottom:14px;")}>
                   ⚠ ข้อมูลความคลาดเคลื่อนทางยาเป็นหลักฐานสำคัญ ควรลบถาวรเฉพาะกรณีกรอกซ้ำหรือกรอกผิดเท่านั้น
                 </div>
+                {/* #21: โชว์ว่าเป็นเคสไหน — กัน HN ซ้ำในถังขยะแล้วลบผิดเคส */}
+                <div style={css("background:#F6FAF9;border:1px solid #E3EFEC;border-radius:11px;padding:10px 13px;font-size:12.5px;color:#334155;line-height:1.65;margin-bottom:14px;")}>
+                  <span style={css("font-weight:700;color:#0B655D;")}>{idLabel}</span> · HN {t.hn || "—"}
+                  <br />
+                  วันที่ {t.occurred_at || "—"} · ผู้รายงาน {t.reporter || "—"}
+                  {drugLine ? (
+                    <>
+                      <br />
+                      ยา {drugLine}
+                    </>
+                  ) : null}
+                </div>
                 <label style={css("font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
                   {hn ? "พิมพ์ HN ของเคสนี้ " : "พิมพ์คำว่า "}
                   <span style={css("font-family:ui-monospace,Menlo,monospace;background:#FEF3E5;color:#B45309;padding:1px 7px;border-radius:6px;font-weight:700;")}>{confWord}</span>
@@ -1589,14 +1764,14 @@ export default function MedDrpApp() {
                 />
                 <div style={css("display:flex;gap:10px;margin-top:15px;")}>
                   <HButton
-                    onClick={() => ok && doHardDelete()}
+                    onClick={() => ok && !S.trashBusy && doHardDelete()}
                     base={
                       "flex:1;border:none;background:#DC2626;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" +
-                      (ok ? "" : "opacity:.45;pointer-events:none;")
+                      (ok && !S.trashBusy ? "" : "opacity:.45;pointer-events:none;")
                     }
                     hover="background:#B91C1C"
                   >
-                    ลบถาวร
+                    {S.trashBusy ? "กำลังลบ…" : "ลบถาวร"}
                   </HButton>
                   <HButton
                     onClick={() => setState({ hardTarget: null, hardInput: "" })}
@@ -1613,6 +1788,41 @@ export default function MedDrpApp() {
 
       {/* หน้าผลการส่งเต็มจอ (สำเร็จ / ไม่สำเร็จ) — คลุมทั้งแอป */}
       {S.result && renderResult()}
+
+      {/* #7: ยืนยันสลับประเภท ME↔DRP ตอนกรอกฟอร์มค้าง — คลิกนอกป๊อปไม่ปิด ต้องกดปุ่มเอง */}
+      {S.confirmSwitch && (
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={css(
+            "position:fixed;inset:0;background:rgba(11,101,93,.45);backdrop-filter:blur(2px);z-index:80;display:flex;align-items:center;justify-content:center;padding:20px;"
+          )}
+        >
+          <div style={css("background:#fff;border-radius:16px;width:400px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+            <div style={css("font-size:16px;font-weight:800;color:#0B655D;margin-bottom:8px;")}>
+              เปลี่ยนเป็น {S.confirmSwitch === "med" ? "Med Error" : "DRP"}
+            </div>
+            <div style={css("font-size:14px;color:#475569;line-height:1.6;margin-bottom:18px;")}>
+              ตอนนี้กรอกข้อมูลค้างไว้อยู่ ถ้าเปลี่ยนประเภทรายงาน ข้อมูลที่กรอกจะถูกล้าง (เก็บไว้เฉพาะ HN และผู้รายงาน)
+            </div>
+            <div style={css("display:flex;gap:10px;")}>
+              <HButton
+                onClick={() => setState({ confirmSwitch: null })}
+                base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                hover="background:#F5FAF9"
+              >
+                กรอกต่อ
+              </HButton>
+              <HButton
+                onClick={() => S.confirmSwitch && doSwitchType(S.confirmSwitch)}
+                base="flex:1;border:none;background:#0F8A80;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;"
+                hover="background:#0B655D"
+              >
+                เปลี่ยนประเภท
+              </HButton>
+            </div>
+          </div>
+        </div>
+      )}
 
       {S.toast && (
         <div
@@ -1888,22 +2098,10 @@ export default function MedDrpApp() {
 
           <div style={css("padding:18px 22px 26px;")}>
             <div style={css("background:#E8F4F1;border-radius:13px;padding:4px;display:flex;gap:4px;margin-bottom:20px;")}>
-              <button
-                onClick={() => {
-                  setState((st) => ({ type: "med", form: emptyForm(DEFAULT_REPORTER, st.form), errors: {} }));
-                  draftSoon();
-                }}
-                style={css(seg(type === "med"))}
-              >
+              <button onClick={() => requestSwitchType("med")} style={css(seg(type === "med"))}>
                 Med Error
               </button>
-              <button
-                onClick={() => {
-                  setState((st) => ({ type: "drp", form: emptyForm(DEFAULT_REPORTER, st.form), errors: {} }));
-                  draftSoon();
-                }}
-                style={css(seg(type === "drp"))}
-              >
+              <button onClick={() => requestSwitchType("drp")} style={css(seg(type === "drp"))}>
                 DRP
               </button>
             </div>
@@ -1981,6 +2179,7 @@ export default function MedDrpApp() {
                   <HInput
                     value={f.an}
                     onChange={(e) => setField("an", e.target.value.replace(/[^0-9-]/g, ""))}
+                    onBlur={() => setField("an", formatAn(f.an, f.occurred_at))}
                     placeholder={f.location === IPD_LOCATION ? "เช่น 69-01234" : "เลือกห้องยา IPD ก่อน"}
                     inputMode="numeric"
                     disabled={f.location !== IPD_LOCATION}
@@ -2004,7 +2203,7 @@ export default function MedDrpApp() {
             <div style={css("margin-bottom:16px;")}>
               <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>ธงเตือนยา</label>
               <div style={css("display:flex;flex-wrap:wrap;gap:8px;")}>
-                <button onClick={() => setField("high_alert", !f.high_alert)} style={css(chip(!!f.high_alert))}>
+                <button onClick={() => toggleHighAlert()} style={css(chip(!!f.high_alert))}>
                   ⚠ High-alert
                 </button>
                 <button onClick={() => setField("lasa", !f.lasa)} style={css(chip(!!f.lasa))}>
@@ -2195,7 +2394,7 @@ export default function MedDrpApp() {
         </label>
         <HSelect
           value={f.location}
-          onChange={(e) => setField("location", e.target.value)}
+          onChange={(e) => setLocation(e.target.value)}
           base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;"
           focus={INPUT_FOCUS}
         >
@@ -2324,13 +2523,18 @@ export default function MedDrpApp() {
             </div>
           )}
           {showNatureOther && (
-            <HInput
-              value={f.error_nature_other}
-              onChange={(e) => setField("error_nature_other", e.target.value)}
-              placeholder="ระบุลักษณะเพิ่มเติม…"
-              base="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
-              focus={INPUT_FOCUS}
-            />
+            <>
+              <HInput
+                value={f.error_nature_other}
+                onChange={(e) => setField("error_nature_other", e.target.value)}
+                placeholder="ระบุลักษณะเพิ่มเติม…"
+                base="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
+                focus={INPUT_FOCUS}
+              />
+              {S.errors.error_nature_other && (
+                <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาระบุลักษณะเพิ่มเติม</div>
+              )}
+            </>
           )}
           {S.errors.error_nature && (
             <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกลักษณะความคลาดเคลื่อน</div>
@@ -2459,7 +2663,7 @@ export default function MedDrpApp() {
             {DRP_TYPES.map((t) => (
               <button
                 key={t.key}
-                onClick={() => setField("drp_type", f.drp_type === t.key ? "" : t.key)}
+                onClick={() => setDrpType(t.key)}
                 style={css(chip(f.drp_type === t.key))}
               >
                 {t.label || t.key}
@@ -2476,13 +2680,18 @@ export default function MedDrpApp() {
             </div>
           )}
           {showDrpOther && (
-            <HInput
-              value={f.drp_type_other}
-              onChange={(e) => setField("drp_type_other", e.target.value)}
-              placeholder="ระบุปัญหา DRP เพิ่มเติม…"
-              base="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
-              focus={INPUT_FOCUS}
-            />
+            <>
+              <HInput
+                value={f.drp_type_other}
+                onChange={(e) => setField("drp_type_other", e.target.value)}
+                placeholder="ระบุปัญหา DRP เพิ่มเติม…"
+                base="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
+                focus={INPUT_FOCUS}
+              />
+              {S.errors.drp_type_other && (
+                <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาระบุรายละเอียดปัญหา DRP</div>
+              )}
+            </>
           )}
           {S.errors.drp_type && (
             <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกประเภทปัญหา DRP</div>
@@ -2638,7 +2847,7 @@ export default function MedDrpApp() {
               DRP
             </button>
             <button
-              onClick={() => exportCsv()}
+              onClick={() => exportCsv(recs)}
               style={css("margin-left:4px;border:none;background:#0B655D;color:#fff;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;cursor:pointer;")}
             >
               ↓ CSV
@@ -2888,7 +3097,7 @@ export default function MedDrpApp() {
                   <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;")}>
                     <span style={css(r.badgeStyle)}>{r.typeLabel}</span>
                     <span style={css("font-size:13px;color:#0F172A;font-weight:600;")}>{r.date}</span>
-                    {r.severity ? (
+                    {r.severity && r.severity !== "—" ? (
                       <span style={css("margin-left:auto;font-size:12.5px;color:#B45309;font-weight:600;")}>ระดับ {r.severity}</span>
                     ) : null}
                   </div>
@@ -3425,7 +3634,7 @@ export default function MedDrpApp() {
           <div style={css("display:flex;flex-direction:column;gap:13px;")}>
             <div>
               <label style={editLabel}>จุดที่พบ</label>
-              <select value={ef.location || ""} onChange={(e) => setEf("location", e.target.value)} style={css(editInputSelect)}>
+              <select value={ef.location || ""} onChange={(e) => setEfLocation(e.target.value)} style={css(editInputSelect)}>
                 {LOCATIONS.map((o) => (
                   <option key={o} value={o}>
                     {o}
@@ -3436,7 +3645,7 @@ export default function MedDrpApp() {
             {ef.location === IPD_LOCATION && (
               <div>
                 <label style={editLabel}>AN (เลขที่ผู้ป่วยใน)</label>
-                <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
+                <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} onBlur={() => setEf("an", formatAn((ef.an as string) || "", ef.occurred_at))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
               </div>
             )}
             <div>
@@ -3480,7 +3689,7 @@ export default function MedDrpApp() {
           <div style={css("display:flex;flex-direction:column;gap:13px;")}>
             <div>
               <label style={editLabel}>จุดที่พบ</label>
-              <select value={ef.location || ""} onChange={(e) => setEf("location", e.target.value)} style={css(editInputSelect)}>
+              <select value={ef.location || ""} onChange={(e) => setEfLocation(e.target.value)} style={css(editInputSelect)}>
                 {LOCATIONS.map((o) => (
                   <option key={o} value={o}>
                     {o}
@@ -3491,7 +3700,7 @@ export default function MedDrpApp() {
             {ef.location === IPD_LOCATION && (
               <div>
                 <label style={editLabel}>AN (เลขที่ผู้ป่วยใน)</label>
-                <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
+                <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} onBlur={() => setEf("an", formatAn((ef.an as string) || "", ef.occurred_at))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
               </div>
             )}
             <div>
@@ -3706,15 +3915,21 @@ export default function MedDrpApp() {
                     </div>
                     <div style={css("display:flex;gap:9px;")}>
                       <HButton
-                        onClick={() => doRestore(t.id)}
-                        base="border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;"
+                        onClick={() => !S.trashBusy && doRestore(t.id)}
+                        base={
+                          "border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;" +
+                          (S.trashBusy ? "opacity:.5;pointer-events:none;" : "")
+                        }
                         hover="background:#F5FAF9"
                       >
                         ↩ กู้คืน
                       </HButton>
                       <HButton
-                        onClick={() => setState({ hardTarget: t, hardInput: "" })}
-                        base="border:1.5px solid #F3C5C2;background:#fff;color:#B91C1C;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;"
+                        onClick={() => !S.trashBusy && setState({ hardTarget: t, hardInput: "" })}
+                        base={
+                          "border:1.5px solid #F3C5C2;background:#fff;color:#B91C1C;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;" +
+                          (S.trashBusy ? "opacity:.5;pointer-events:none;" : "")
+                        }
                         hover="background:#FDECEC"
                       >
                         ลบถาวร

@@ -117,11 +117,13 @@ export async function softDeleteIncident(cfg: SupabaseCfg, id: string): Promise<
   if (error) throw error;
 }
 
-// กู้คืนจากถังขยะ — ล้าง deleted_at กลับเป็น null
-export async function restoreIncident(cfg: SupabaseCfg, id: string): Promise<void> {
+// กู้คืนจากถังขยะ — ล้าง deleted_at กลับเป็น null · คืน true เมื่อมีแถวถูกกู้คืนจริง
+// (ถ้าเครื่องอื่นลบถาวรไปแล้ว จะ update โดน 0 แถว → คืน false ไม่หลอกว่า "กู้คืนแล้ว")
+export async function restoreIncident(cfg: SupabaseCfg, id: string): Promise<boolean> {
   const c = getClient(cfg);
-  const { error } = await c.from("incidents").update({ deleted_at: null }).eq("id", id);
+  const { data, error } = await c.from("incidents").update({ deleted_at: null }).eq("id", id).select("id");
   if (error) throw error;
+  return !!(data && data.length);
 }
 
 // ลบถาวร (ชั้น 2) — ลบแถวออกจากฐานข้อมูลจริง กู้คืนไม่ได้
