@@ -933,8 +933,10 @@ export default function MedDrpApp() {
       "px;",
   }));
 
+  // นับระดับความรุนแรง A–I รวมทั้ง Med Error และ DRP (DRP เลือกความรุนแรงได้แล้ว)
+  // recs ผ่านตัวกรอง med/drp/ทั้งหมด มาแล้ว → เลือก "เฉพาะ DRP" ก็จะเห็นความรุนแรงของ DRP
   const bySev: Record<string, number> = {};
-  recs.filter((r) => r.type === "med").forEach((r) => {
+  recs.forEach((r) => {
     if (r.severity) bySev[r.severity] = (bySev[r.severity] || 0) + 1;
   });
   const smax = Math.max(1, ...Object.values(bySev), 1);
