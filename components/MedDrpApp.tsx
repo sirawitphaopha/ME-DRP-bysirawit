@@ -7,6 +7,7 @@ import {
   DRP_TYPES,
   ERROR_NATURE,
   ERROR_TYPES,
+  CONSULT_DOCTOR,
   INTERVENTIONS,
   LOCATIONS,
   IPD_LOCATION,
@@ -552,7 +553,8 @@ export default function MedDrpApp() {
       if (!String(f.detail || "").trim()) errs.detail = true; // รายละเอียดเหตุการณ์
     } else {
       if (!f.drp_type) errs.drp_type = true;
-      if (!f.pharmacist_only && !f.outcome) errs.outcome = true; // เภสัชกรแก้เอง = ไม่มีผลตอบรับจากแพทย์
+      // บังคับผลตอบรับเฉพาะเคสที่เสนอแพทย์จริง (เลือก "ปรึกษาแพทย์ผู้สั่งใช้" และไม่ได้ติ๊กว่าเภสัชกรแก้เอง)
+      if (!f.pharmacist_only && f.intervention === CONSULT_DOCTOR && !f.outcome) errs.outcome = true;
       if (!String(f.cause || "").trim()) errs.cause = true; // รายละเอียดเหตุการณ์ / สาเหตุ (ยุบรวมช่องเดิม 2 ช่อง)
       if (!f.intervention) errs.intervention = true; // การแก้ไข (Intervention)
     }
@@ -1002,8 +1004,16 @@ export default function MedDrpApp() {
           ["ธงเตือนยา", flags],
           ["รายละเอียดเหตุการณ์ / สาเหตุ", dt2.cause],
           ["การแก้ไข (Intervention)", dt2.intervention],
-          // เภสัชกรแก้เอง = ไม่ได้เสนอแพทย์ จึงไม่มีผลตอบรับ
-          ["ผลตอบรับจากแพทย์", dt2.pharmacist_only ? "เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์" : outcomeLabel(dt2.outcome)],
+          // มีแถวผลตอบรับเฉพาะเคสที่เกี่ยวกับแพทย์: เสนอแพทย์ (มี outcome) หรือติ๊กว่าเภสัชกรแก้เอง
+          ...(dt2.pharmacist_only || dt2.outcome
+            ? ([
+                [
+                  "ผลตอบรับจากแพทย์",
+                  dt2.pharmacist_only ? "เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์" : outcomeLabel(dt2.outcome),
+                ],
+              ] as [string, unknown][])
+            : []),
+          ...(dt2.management ? ([["การแก้ไข / จัดการ", dt2.management]] as [string, unknown][]) : []),
           ...(dt2.detail ? ([["รายละเอียดเพิ่มเติม", dt2.detail]] as [string, unknown][]) : []), // เคสเก่าที่เคยมีช่องนี้
           ["ผู้รายงาน", dt2.reporter],
         ];
@@ -1034,6 +1044,7 @@ export default function MedDrpApp() {
           ["ประเภท DRP", drpLabel(h.drp_type)],
           ["รายละเอียดเหตุการณ์ / สาเหตุ", h.cause],
           ["Intervention", h.intervention],
+          ["การแก้ไข / จัดการ", h.management],
           ["ผลตอบรับจากแพทย์", h.pharmacist_only ? "เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์" : outcomeLabel(h.outcome)],
           ["ยา", h.drug],
           ["รายละเอียด", h.detail],
@@ -1950,13 +1961,46 @@ export default function MedDrpApp() {
           )}
         </div>
 
+        {/* เภสัชกรจัดการเอง → ไม่ได้เสนอแพทย์ จึงไม่มีผลตอบรับจากแพทย์ (ซ่อนช่อง + ล้างค่าเดิม) */}
+        <div style={css("margin-bottom:16px;")}>
+          <HButton
+            onClick={() => {
+              const next = !f.pharmacist_only;
+              setField("pharmacist_only", next);
+              if (next) setField("outcome", "");
+            }}
+            base={
+              "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;padding:11px 14px;border-radius:11px;font-size:14.5px;font-weight:600;cursor:pointer;transition:all .15s;" +
+              (f.pharmacist_only
+                ? "border:1.5px solid #F5A623;background:#FEF7EC;color:#B45309;"
+                : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
+            }
+            hover={f.pharmacist_only ? "background:#FDEFD6;" : "border-color:#F5A623;color:#B45309;"}
+          >
+            <span
+              style={css(
+                "width:20px;height:20px;flex:0 0 20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;" +
+                  (f.pharmacist_only ? "background:#F5A623;color:#3B2200;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
+              )}
+            >
+              ✓
+            </span>
+            เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์
+          </HButton>
+        </div>
+
         <div style={css("margin-bottom:16px;")}>
           <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>
             การแก้ไข (Intervention) <span style={css("color:#DC2626;")}>*</span>
           </label>
           <HSelect
             value={f.intervention}
-            onChange={(e) => setField("intervention", e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setField("intervention", v);
+              // เปลี่ยนไปการแก้ไขที่ไม่ได้เสนอแพทย์ → ล้างผลตอบรับที่เคยเลือกไว้ ไม่ให้ค้างติดไปกับเคส
+              if (v !== CONSULT_DOCTOR) setField("outcome", "");
+            }}
             base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 40px 12px 14px;font-size:15px;color:#0F172A;background-color:#fff;outline:none;"
             focus={INPUT_FOCUS}
           >
@@ -1973,35 +2017,8 @@ export default function MedDrpApp() {
           )}
         </div>
 
-        {/* เภสัชกรจัดการเอง → ไม่ได้เสนอแพทย์ จึงไม่มีผลตอบรับจากแพทย์ (ซ่อนช่อง + ล้างค่าเดิม) */}
-        <div style={css("margin-bottom:16px;")}>
-          <HButton
-            onClick={() => {
-              const next = !f.pharmacist_only;
-              setField("pharmacist_only", next);
-              if (next) setField("outcome", "");
-            }}
-            base={
-              "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;padding:11px 14px;border-radius:11px;font-size:14.5px;font-weight:600;cursor:pointer;transition:all .15s;" +
-              (f.pharmacist_only
-                ? "border:1.5px solid #0F8A80;background:#E8F5F3;color:#0B655D;"
-                : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
-            }
-            hover={f.pharmacist_only ? "background:#DDEFEC;" : "border-color:#0F8A80;color:#0F8A80;"}
-          >
-            <span
-              style={css(
-                "width:20px;height:20px;flex:0 0 20px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;" +
-                  (f.pharmacist_only ? "background:#0F8A80;color:#fff;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
-              )}
-            >
-              ✓
-            </span>
-            เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์
-          </HButton>
-        </div>
-
-        {!f.pharmacist_only && (
+        {/* ผลตอบรับจากแพทย์ = มีเฉพาะเมื่อเลือกการแก้ไขแบบ "ปรึกษาแพทย์ผู้สั่งใช้" (และไม่ได้ติ๊กว่าเภสัชกรแก้เอง) */}
+        {!f.pharmacist_only && f.intervention === CONSULT_DOCTOR && (
           <div style={css("margin-bottom:16px;")}>
             <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
               ผลตอบรับจากแพทย์ <span style={css("color:#DC2626;")}>*</span>
@@ -2022,6 +2039,19 @@ export default function MedDrpApp() {
             )}
           </div>
         )}
+
+        {/* รายละเอียดการจัดการ — ใช้คอลัมน์ management ร่วมกับฝั่ง Med Error · ไม่บังคับกรอก · อยู่ล่างสุด */}
+        <div style={css("margin-bottom:18px;")}>
+          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:6px;")}>การแก้ไข / จัดการ</label>
+          <HTextarea
+            value={f.management}
+            onChange={(e) => setField("management", e.target.value)}
+            rows={2}
+            placeholder="ดำเนินการอย่างไรต่อ… (จะพิมพ์เพิ่มหรือไม่ก็ได้)"
+            base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;resize:vertical;line-height:1.55;"
+            focus={INPUT_FOCUS}
+          />
+        </div>
       </div>
     );
   }
@@ -2635,7 +2665,9 @@ export default function MedDrpApp() {
                     {d.ok && (
                       <span
                         style={css(
-                          "display:inline-block;background:#E8F5F3;color:#0B655D;font-size:12.5px;font-weight:700;padding:3px 10px;border-radius:999px;margin-right:8px;"
+                          "display:inline-block;font-size:12.5px;font-weight:700;padding:3px 10px;border-radius:999px;margin-right:8px;" +
+                            // เภสัชกรแก้เอง = อำพัน (ตรงกับปุ่มติ๊กในฟอร์ม) · แก้ไขแล้ว (ME) = เทล
+                            (d.ok.includes("เภสัชกร") ? "background:#FEF7EC;color:#B45309;" : "background:#E8F5F3;color:#0B655D;")
                         )}
                       >
                         {d.ok}
@@ -2814,17 +2846,6 @@ export default function MedDrpApp() {
               <HTextarea value={ef.cause || ""} onChange={(e) => setEf("cause", e.target.value)} rows={3} base={editTextarea} focus={INPUT_FOCUS} />
             </div>
             <div>
-              <label style={editLabel}>การแก้ไข (Intervention)</label>
-              <select value={ef.intervention || ""} onChange={(e) => setEf("intervention", e.target.value)} style={css(editInputSelect)}>
-                <option value="">— เลือกการแก้ไข —</option>
-                {INTERVENTIONS.map((o) => (
-                  <option key={o} value={o}>
-                    {o}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
               <HButton
                 onClick={() => {
                   const next = !ef.pharmacist_only;
@@ -2834,15 +2855,15 @@ export default function MedDrpApp() {
                 base={
                   "width:100%;box-sizing:border-box;display:flex;align-items:center;gap:10px;text-align:left;padding:10px 13px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;" +
                   (ef.pharmacist_only
-                    ? "border:1.5px solid #0F8A80;background:#E8F5F3;color:#0B655D;"
+                    ? "border:1.5px solid #F5A623;background:#FEF7EC;color:#B45309;"
                     : "border:1.5px solid #DCE7E5;background:#fff;color:#64748B;")
                 }
-                hover={ef.pharmacist_only ? "background:#DDEFEC;" : "border-color:#0F8A80;color:#0F8A80;"}
+                hover={ef.pharmacist_only ? "background:#FDEFD6;" : "border-color:#F5A623;color:#B45309;"}
               >
                 <span
                   style={css(
                     "width:19px;height:19px;flex:0 0 19px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;" +
-                      (ef.pharmacist_only ? "background:#0F8A80;color:#fff;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
+                      (ef.pharmacist_only ? "background:#F5A623;color:#3B2200;" : "background:#fff;border:1.5px solid #CBD5E1;color:transparent;")
                   )}
                 >
                   ✓
@@ -2850,7 +2871,26 @@ export default function MedDrpApp() {
                 เภสัชกรแก้ไขเอง ไม่ผ่านแพทย์
               </HButton>
             </div>
-            {!ef.pharmacist_only && (
+            <div>
+              <label style={editLabel}>การแก้ไข (Intervention)</label>
+              <select
+                value={ef.intervention || ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setEf("intervention", v);
+                  if (v !== CONSULT_DOCTOR) setEf("outcome", "");
+                }}
+                style={css(editInputSelect)}
+              >
+                <option value="">— เลือกการแก้ไข —</option>
+                {INTERVENTIONS.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {!ef.pharmacist_only && ef.intervention === CONSULT_DOCTOR && (
               <div>
                 <label style={editLabel}>ผลตอบรับจากแพทย์</label>
                 <select value={ef.outcome || ""} onChange={(e) => setEf("outcome", e.target.value)} style={css(editInputSelect)}>
@@ -2863,6 +2903,16 @@ export default function MedDrpApp() {
                 </select>
               </div>
             )}
+            <div>
+              <label style={editLabel}>การแก้ไข / จัดการ</label>
+              <HTextarea
+                value={ef.management || ""}
+                onChange={(e) => setEf("management", e.target.value)}
+                rows={2}
+                base={editTextarea}
+                focus={INPUT_FOCUS}
+              />
+            </div>
           </div>
         )}
 
