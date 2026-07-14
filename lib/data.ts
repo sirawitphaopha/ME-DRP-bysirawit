@@ -137,24 +137,37 @@ export async function insertIncident(cfg: SupabaseCfg, rec: Incident): Promise<v
   if (error) throw error;
 }
 
-// ส่ง incident ขึ้น Supabase แบบ "ยืนยันผลจริง" — คืน true เฉพาะเมื่อขึ้นระบบสำเร็จ (หรือมีอยู่แล้ว)
-// มี timeout กันคำขอค้างนาน (เคสมือถือเน็ตช้า) เพื่อไม่ให้ UI ขึ้น "บันทึกแล้ว" หลอกทั้งที่ยังไม่ขึ้นระบบ
-export async function pushIncident(cfg: SupabaseCfg, rec: Incident, timeoutMs = 12000): Promise<boolean> {
+// ส่ง incident ขึ้น Supabase แบบ "ยืนยันผลจริง + ลองซ้ำอัตโนมัติในครั้งเดียว" — คืน true เฉพาะเมื่อขึ้นระบบสำเร็จ (หรือมีอยู่แล้ว)
+// 🐛 บั๊ก cross-browser (Safari): คำขอ POST "ครั้งแรก" บางทีสะดุดที่ฝั่งเบราว์เซอร์ (cold start / ITP / เน็ตวืบ)
+//    ก่อนถึง server → กดครั้งเดียวไม่ไป แต่กดซ้ำแล้วไป (log ฝั่ง server เห็นแต่ POST 201 ไม่มี error)
+//    แก้: ลองส่งซ้ำเองในการกดครั้งเดียว (idempotent — id เดิม → 23505 = สำเร็จ ไม่เกิดซ้ำ)
+//    per-attempt timeout ใช้ AbortController ยกเลิกคำขอที่ค้างจริง ๆ ก่อนลองใหม่ (กันคำขอซ้อน)
+export async function pushIncident(
+  cfg: SupabaseCfg,
+  rec: Incident,
+  opts: { attempts?: number; timeoutMs?: number } = {}
+): Promise<boolean> {
+  const attempts = opts.attempts ?? 3;
+  const timeoutMs = opts.timeoutMs ?? 9000;
   const c = getClient(cfg);
-  const insertP: Promise<{ error: { code?: string } | null }> = Promise.resolve(
-    c.from("incidents").insert(toRow(rec))
-  ).then((r) => ({ error: (r as { error: { code?: string } | null }).error }));
-  const timeoutP = new Promise<{ error: { code?: string } | null }>((resolve) =>
-    setTimeout(() => resolve({ error: { code: "TIMEOUT" } }), timeoutMs)
-  );
-  try {
-    const { error } = await Promise.race([insertP, timeoutP]);
-    if (!error) return true;
-    if (error.code === "23505") return true; // แถวนี้อยู่ในระบบแล้ว (PK ซ้ำ) = ถือว่าสำเร็จ
-    return false;
-  } catch {
-    return false;
+  const row = toRow(rec);
+  for (let a = 0; a < attempts; a++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const { error } = (await c.from("incidents").insert(row).abortSignal(ctrl.signal)) as {
+        error: { code?: string } | null;
+      };
+      clearTimeout(timer);
+      if (!error) return true;
+      if (error.code === "23505") return true; // แถวนี้อยู่ในระบบแล้ว (PK ซ้ำ) = ถือว่าสำเร็จ
+      // error อื่น (เครือข่ายวืบ ฯลฯ) → ตกไปลองใหม่
+    } catch {
+      clearTimeout(timer); // abort / network error → ลองใหม่
+    }
+    if (a < attempts - 1) await new Promise((r) => setTimeout(r, 500 * (a + 1))); // backoff 0.5s, 1s
   }
+  return false;
 }
 
 export async function updateIncident(cfg: SupabaseCfg, rec: Incident): Promise<void> {

@@ -1175,7 +1175,7 @@ export default function MedDrpApp() {
     typeLabel: r.type === "med" ? "Med Error" : "DRP",
     badgeStyle: r.type === "med" ? badgeMed : badgeDrp,
     hn: r.hn || "—",
-    place: r.type === "med" ? r.location || "—" : "—",
+    place: r.location || "—", // จุดที่พบ — DRP ก็มี (จุดที่พบเป็นช่องร่วม ME+DRP) เดิม gate เฉพาะ med ทำให้ DRP โชว์ "—"
     cat:
       r.type === "med"
         ? natureText(r.error_type)
