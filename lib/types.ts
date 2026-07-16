@@ -11,7 +11,8 @@ export interface Incident {
   hn?: string;
   reporter?: string;
   drug?: string; // ข้อความรวม (join ด้วย ", ")
-  drugs?: string[]; // รายการยาหลายตัว
+  drugs?: string[]; // รายการยาหลายตัว (ข้อความ · snapshot ตอนเลือก)
+  drug_ids?: (number | null)[]; // รหัสยาในคลัง (drugs.id) ขนานกับ drugs[] — เลือกจากคลัง=มีเลข · พิมพ์เอง/เคสเก่า=null (v0.9.10.x Phase 2)
   high_alert?: boolean;
   lasa?: boolean;
   attachment?: string | null; // data URL
@@ -63,6 +64,7 @@ export interface FormState {
   intervention: string;
   outcome: string;
   drugs: string[];
+  drug_ids: (number | null)[]; // รหัสยาในคลัง ขนานกับ drugs[] (เลือกจากคลัง=id · พิมพ์เอง=null)
   drug: string;
   high_alert: boolean;
   lasa: boolean;

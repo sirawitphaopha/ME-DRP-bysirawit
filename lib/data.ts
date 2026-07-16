@@ -12,6 +12,7 @@ const COLS = [
   "reporter",
   "drug",
   "drugs",
+  "drug_ids",
   "high_alert",
   "lasa",
   "attachment",

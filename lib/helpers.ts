@@ -92,6 +92,7 @@ export function emptyForm(defaultReporter: string, keep?: Partial<Pick<FormState
     intervention: "", // ต้องว่าง — เดิมค้างค่าแรกไว้ ทำให้บันทึกค่าที่ไม่ได้ตั้งใจเลือก (การบังคับกรอกไม่มีผล)
     outcome: "",
     drugs: [""],
+    drug_ids: [null],
     drug: "",
     high_alert: false,
     lasa: false,
@@ -137,6 +138,25 @@ export function drugText(r: Incident): string {
 export function drugArr(r: Incident): string[] {
   if (r.drugs && r.drugs.length) return r.drugs.filter(Boolean);
   return r.drug ? String(r.drug).split(/\s*,\s*/).filter(Boolean) : [];
+}
+
+// แปลงรายการยาของเคสเป็น "ชื่อล่าสุด" — ถ้ามี drug_ids[i] และเจอในคลัง → ใช้ชื่อปัจจุบัน (เปลี่ยนชื่อยาแล้วตามทั้งหมด)
+// ไม่มี id / เคสเก่า / พิมพ์เอง → ใช้ข้อความเดิมที่บันทึกไว้ · byId = แผนที่ id→Drug จากคลังปัจจุบัน
+export function resolveDrugLines(r: Incident, byId?: Map<number, Drug>): string[] {
+  const texts = drugArr(r);
+  const ids = r.drug_ids || [];
+  return texts.map((t, i) => {
+    const id = ids[i];
+    if (byId && id != null) {
+      const d = byId.get(id);
+      if (d) return drugFlatLine(d);
+    }
+    return t;
+  });
+}
+// รหัสยาที่ผูกกับเคส (unique · ตัด null) — ใช้ group ใน Dashboard ให้เปลี่ยนชื่อแล้วไม่นับซ้ำ
+export function drugIdArr(r: Incident): number[] {
+  return (r.drug_ids || []).filter((x): x is number => x != null);
 }
 
 export function outcomeLabel(k?: string): string {

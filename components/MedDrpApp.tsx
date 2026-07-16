@@ -22,6 +22,7 @@ import {
   drpLabel,
   drugArr,
   drugText,
+  resolveDrugLines,
   emptyFilter,
   emptyForm,
   fmtThaiDateTime,
@@ -816,6 +817,43 @@ export default function MedDrpApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setState]);
 
+  // Phase 2: จับคู่รหัสยาให้เคสเก่าอัตโนมัติ (best-effort · ครั้งเดียวต่อเครื่อง)
+  // แมตช์เฉพาะข้อความยาที่ "ตรงเป๊ะ" กับ drugFlatLine ของยาในคลังปัจจุบัน (ยาที่ยังไม่เคยเปลี่ยนชื่อ)
+  // เคสที่แมตช์ไม่ได้ (ยาเปลี่ยนชื่อไปแล้ว/พิมพ์เอง) พี่กันปรับเองใน Phase 3
+  const backfillDrugIds = useCallback(async () => {
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) return;
+    try {
+      if (localStorage.getItem("meddrp_drugid_backfill_v1")) return;
+    } catch {}
+    const drugs = stateRef.current.drugs || [];
+    if (!drugs.length) return; // คลังยายังไม่โหลด รอรอบหน้า
+    const byLine = new Map<string, number>();
+    drugs.forEach((d) => byLine.set(drugFlatLine(d), d.id));
+    const recs = stateRef.current.records || [];
+    const toUpdate: Incident[] = [];
+    recs.forEach((r) => {
+      if (!isUuid(r.id)) return; // เฉพาะเคสที่ขึ้น server แล้ว
+      const texts = drugArr(r);
+      if (!texts.length) return;
+      const existing = r.drug_ids || [];
+      if (existing.length >= texts.length && existing.every((x) => x != null)) return; // ผูกครบแล้ว
+      const ids = texts.map((t, i) => (existing[i] != null ? existing[i] : byLine.has(t) ? (byLine.get(t) as number) : null));
+      if (ids.some((x, i) => x !== (existing[i] ?? null))) toUpdate.push({ ...r, drug_ids: ids });
+    });
+    if (toUpdate.length) {
+      for (const rec of toUpdate) {
+        try {
+          await pushUpdate(cfg, rec);
+        } catch {}
+      }
+      refreshRecords();
+    }
+    try {
+      localStorage.setItem("meddrp_drugid_backfill_v1", "1");
+    } catch {}
+  }, [refreshRecords]);
+
   useEffect(() => {
     if (!mounted) return;
     const cfg = state.cfg;
@@ -900,6 +938,14 @@ export default function MedDrpApp() {
     };
   }, [state.drugEdit, state.drugLog]);
 
+  // Phase 2: จับคู่รหัสยาให้เคสเก่าอัตโนมัติ (ครั้งเดียว · เมื่อทั้งรายงานและคลังยาโหลดครบ)
+  useEffect(() => {
+    if (!mounted) return;
+    if (!(state.records && state.records.length) || !(state.drugs && state.drugs.length)) return;
+    backfillDrugIds();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, state.records.length, state.drugs.length]);
+
   // re-animate KPIs เมื่อเข้า dashboard / เปลี่ยนตัวกรอง/ช่วงเวลา/ข้อมูล
   useEffect(() => {
     if (mounted && state.view === "dashboard") animateKpis();
@@ -973,25 +1019,35 @@ export default function MedDrpApp() {
     }
     return s.hadAuto;
   };
+  // จัด drug_ids ให้ยาวเท่า drugs เสมอ (เผื่อร่างเก่า/ฟอร์มไม่มี)
+  const alignIds = (ids: (number | null)[], len: number): (number | null)[] => {
+    const a = ids.slice();
+    while (a.length < len) a.push(null);
+    return a;
+  };
   const setDrugAt = (i: number, v: string) => {
     setState((s) => {
       const d = (s.form.drugs || [""]).slice();
       d[i] = v;
-      const form = { ...s.form, drugs: d } as FormState;
+      const ids = alignIds(s.form.drug_ids || [], d.length);
+      ids[i] = null; // พิมพ์เอง = ไม่ผูกรหัสยาแล้ว (Phase 2)
+      const form = { ...s.form, drugs: d, drug_ids: ids } as FormState;
       return { form, hadAuto: clearAutoHad(s, form) };
     });
     draftSoon();
   };
   const addDrug = () => {
-    setState((s) => ({ form: { ...s.form, drugs: [...(s.form.drugs || [""]), ""] } }));
+    setState((s) => ({ form: { ...s.form, drugs: [...(s.form.drugs || [""]), ""], drug_ids: [...(s.form.drug_ids || []), null] } }));
     draftSoon();
   };
-  // เลือกยาจากรายการ suggest → ใส่เป็นข้อความบรรทัดเดียว + ปิด suggest
+  // เลือกยาจากรายการ suggest → ใส่เป็นข้อความบรรทัดเดียว + ผูกรหัสยา (id) + ปิด suggest
   const pickDrug = (i: number, d: Drug) => {
     setState((s) => {
       const arr = (s.form.drugs || [""]).slice();
       arr[i] = drugFlatLine(d);
-      const form = { ...s.form, drugs: arr } as FormState;
+      const ids = alignIds(s.form.drug_ids || [], arr.length);
+      ids[i] = d.id; // ผูกรหัสยา → เปลี่ยนชื่อยาในคลังแล้วเคสตามทั้งหมด + Dashboard ไม่นับซ้ำ
+      const form = { ...s.form, drugs: arr, drug_ids: ids } as FormState;
       let hadAuto = s.hadAuto;
       // ยา HAD (High Alert Drug) จากคลังยา → ติดธง High-alert ให้อัตโนมัติ (ผู้ใช้ปลดเองได้ถ้าไม่ต้องการ)
       if (d.had) {
@@ -1007,9 +1063,14 @@ export default function MedDrpApp() {
   const removeDrug = (i: number) => {
     setState((s) => {
       const d = (s.form.drugs || [""]).slice();
+      const ids = alignIds(s.form.drug_ids || [], d.length);
       d.splice(i, 1);
-      if (!d.length) d.push("");
-      const form = { ...s.form, drugs: d } as FormState;
+      ids.splice(i, 1);
+      if (!d.length) {
+        d.push("");
+        ids.push(null);
+      }
+      const form = { ...s.form, drugs: d, drug_ids: ids } as FormState;
       return { form, hadAuto: clearAutoHad(s, form) };
     });
     draftSoon();
@@ -1125,12 +1186,18 @@ export default function MedDrpApp() {
       return;
     }
     setState({ saving: true, errors: {} });
-    const drugsArr = (f.drugs || []).map((x) => String(x).trim()).filter(Boolean);
+    // จับคู่ข้อความยา + รหัสยา (drug_ids) ให้ตรง index แล้วค่อยกรองช่องว่างออกพร้อมกัน (คงการผูก id)
+    const drugPairs = (f.drugs || [])
+      .map((x, i) => ({ text: String(x).trim(), id: (f.drug_ids || [])[i] ?? null }))
+      .filter((p) => p.text);
+    const drugsArr = drugPairs.map((p) => p.text);
+    const drugIdsArr = drugPairs.map((p) => p.id);
     const rec: Incident = {
       ...f,
       type,
       shift: shiftOf(f.occurred_time),
       drugs: drugsArr,
+      drug_ids: drugIdsArr,
       drug: drugsArr.join(", "),
       // #15: AN เก็บในรูปแบบมาตรฐาน "YY-NNNNN" เสมอ (เผื่อกดบันทึกโดยยังไม่ blur ช่อง AN) · ไม่ใช่ IPD = ไม่เก็บ AN
       an: f.location === IPD_LOCATION ? formatAn(f.an, f.occurred_at) : "",
@@ -1308,9 +1375,14 @@ export default function MedDrpApp() {
       .split(/\s*,\s*/)
       .map((x) => x.trim())
       .filter(Boolean);
+    // Phase 2: โหมดแก้ไขยังพิมพ์ชื่อยาเป็นข้อความ (Phase 3 จะรื้อให้เลือกจากคลัง) → จับคู่รหัสยาใหม่จากข้อความ
+    //          ที่ตรงเป๊ะกับคลัง (คงการผูก id ของยาที่ไม่เปลี่ยน · ที่แมตช์ไม่ได้ = null)
+    const editByLine = new Map<string, number>((stateRef.current.drugs || []).map((d) => [drugFlatLine(d), d.id]));
+    const dIds = dArr.map((t) => (editByLine.has(t) ? (editByLine.get(t) as number) : null));
     const updated: Incident = {
       ...(ef as Incident),
       drugs: dArr,
+      drug_ids: dIds,
       drug: dArr.join(", "),
       shift: shiftOf(ef.occurred_time) || ef.shift || det.shift, // #24: ไม่ล้างเวรถ้าเคสไม่มีเวลา (เคสเก่า)
       edited: true,
@@ -1373,7 +1445,15 @@ export default function MedDrpApp() {
       if (/^[=+\-@]/.test(s)) s = "'" + s; // #18: กัน formula injection ใน Excel/Sheets (ช่องขึ้นต้น = + - @)
       return '"' + s.replace(/"/g, '""') + '"';
     };
-    const rows = data.map((r) => cols.map((c) => esc((r as unknown as Record<string, unknown>)[c])).join(","));
+    // Phase 2: คอลัมน์ "drug" ใน CSV ใช้ชื่อล่าสุดจากรหัสยา (สอดคล้องกับที่แสดงบนหน้าจอ)
+    const rows = data.map((r) =>
+      cols
+        .map((c) => {
+          if (c === "drug") return esc(resolveDrugLines(r, drugsById).join(", ") || r.drug || "");
+          return esc((r as unknown as Record<string, unknown>)[c]);
+        })
+        .join(",")
+    );
     const csv = cols.join(",") + "\n" + rows.join("\n");
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -1395,6 +1475,8 @@ export default function MedDrpApp() {
   const S = state;
   const f = S.form;
   const type = S.type;
+  // แผนที่ รหัสยา → ยาในคลังปัจจุบัน (Phase 2) — ใช้แปลงเคสให้แสดง/นับด้วย "ชื่อล่าสุด"
+  const drugsById = new Map<number, Drug>((S.drugs || []).map((d) => [d.id, d]));
   const errTypeSel = ERROR_TYPES.filter((t) => natureToArray(f.error_type).includes(t.key));
   const sevObj = SEVERITY.find((s) => s.code === f.severity);
   const drpObj = DRP_TYPES.find((t) => t.key === f.drp_type);
@@ -1502,18 +1584,27 @@ export default function MedDrpApp() {
   const typeBreak = S.dashType === "drp" ? drpBreak : errorBreak;
   const breakTitle = S.dashType === "drp" ? "แยกตามประเภท DRP" : "แยกตามประเภท Med Error";
 
-  const byDrug: Record<string, number> = {};
+  // Phase 2: นับยาบ่อยโดย group ด้วย "รหัสยา" (id) เมื่อมี → เปลี่ยนชื่อยาแล้วไม่นับซ้ำ · ป้าย = ชื่อล่าสุด
+  //          ยาที่พิมพ์เอง/เคสเก่าไม่มี id → group ด้วยข้อความเดิม
+  const byDrugCount: Record<string, number> = {};
+  const byDrugLabel: Record<string, string> = {};
   recs.forEach((r) => {
-    drugArr(r).forEach((dn) => {
-      byDrug[dn] = (byDrug[dn] || 0) + 1;
+    const texts = drugArr(r);
+    const ids = r.drug_ids || [];
+    texts.forEach((t, i) => {
+      const id = ids[i];
+      const master = id != null ? drugsById.get(id) : undefined;
+      const key = master ? "id:" + id : "txt:" + t;
+      byDrugCount[key] = (byDrugCount[key] || 0) + 1;
+      byDrugLabel[key] = master ? drugFlatLine(master) : t;
     });
   });
-  const drugEntries = Object.entries(byDrug)
+  const drugEntries = Object.entries(byDrugCount)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 6);
   const gmax = Math.max(1, ...drugEntries.map((x) => x[1]), 1);
-  const topDrugs = drugEntries.map(([name, count]) => ({
-    name,
+  const topDrugs = drugEntries.map(([key, count]) => ({
+    name: byDrugLabel[key],
     count,
     barStyle:
       "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
@@ -1654,7 +1745,7 @@ export default function MedDrpApp() {
     hn: r.hn || "—",
     cat: r.type === "med" ? natureText(r.error_type) : drpLabel(r.drp_type) || "—",
     severity: r.severity || "—",
-    drug: r.drug || "—",
+    drug: resolveDrugLines(r, drugsById).join(", ") || "—", // Phase 2: ชื่อล่าสุดจากรหัสยา
     reporter: r.reporter || "—",
   }));
 
@@ -1703,7 +1794,7 @@ export default function MedDrpApp() {
         ? "อื่น ๆ: " + r.drp_type_other
         : drpLabel(r.drp_type) || "—",
     severity: r.severity || "—",
-    drug: (r.drug || "—") + (r.high_alert ? " ⚠" : "") + (r.lasa ? " 🔁" : ""),
+    drug: (resolveDrugLines(r, drugsById).join(", ") || "—") + (r.high_alert ? " ⚠" : "") + (r.lasa ? " 🔁" : ""),
     reporter: r.reporter || "—",
     // รายละเอียดเหตุการณ์ที่พิมพ์ไว้ — Med ใช้ detail · DRP ใช้ cause (ช่อง "รายละเอียดเหตุการณ์/สาเหตุ")
     detailText: (r.type === "med" ? r.detail : r.cause) || "",
@@ -1721,7 +1812,7 @@ export default function MedDrpApp() {
     const flags = [dt2.high_alert ? "High-alert" : null, dt2.lasa ? "LASA" : null].filter(Boolean).join(", ") || "—";
     const tval = dt2.shift || shiftOf(dt2.occurred_time) || "—";
     const natureDisp = natureText(dt2.error_nature, dt2.error_nature_other);
-    const drugDisp = drugText(dt2);
+    const drugDisp = resolveDrugLines(dt2, drugsById).join(", ") || drugText(dt2); // Phase 2: โชว์ชื่อล่าสุดจากรหัสยา
     const drpDisp = dt2.drp_type === "อื่น ๆ" && dt2.drp_type_other ? "อื่น ๆ — " + dt2.drp_type_other : drpLabel(dt2.drp_type);
     const rows: [string, unknown][] = isMed2
       ? [
