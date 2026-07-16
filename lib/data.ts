@@ -238,6 +238,40 @@ export async function fetchDrugs(cfg: SupabaseCfg): Promise<Drug[]> {
   return (data || []) as Drug[];
 }
 
+// ---------- แก้ไขคลังยา (หน้า "คลังยา" · v0.9.10.0) ----------
+const DRUG_COLS = ["generic", "strength", "unit", "percent", "form", "route", "release", "brand", "had", "preg", "renal"] as const;
+function drugRow(d: Partial<Drug>): Record<string, unknown> {
+  const r: Record<string, unknown> = {};
+  for (const col of DRUG_COLS) {
+    const v = (d as Record<string, unknown>)[col];
+    if (v === undefined) continue;
+    r[col] = v === "" ? null : v; // ช่องข้อความว่าง → null (ไม่เก็บสตริงว่าง)
+  }
+  return r;
+}
+
+// เพิ่มยาใหม่ — ไม่ส่ง id (ให้ identity ออกให้) · คืน row ใหม่ (มี id)
+export async function insertDrug(cfg: SupabaseCfg, d: Partial<Drug>): Promise<Drug> {
+  const c = getClient(cfg);
+  const { data, error } = await c.from("drugs").insert(drugRow(d)).select().single();
+  if (error) throw error;
+  return data as Drug;
+}
+
+// แก้ไขยา (ตาม id)
+export async function updateDrug(cfg: SupabaseCfg, d: Drug): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("drugs").update(drugRow(d)).eq("id", d.id);
+  if (error) throw error;
+}
+
+// ลบยา (ตาม id)
+export async function deleteDrug(cfg: SupabaseCfg, id: number): Promise<void> {
+  const c = getClient(cfg);
+  const { error } = await c.from("drugs").delete().eq("id", id);
+  if (error) throw error;
+}
+
 // ---------- Realtime คลังยา ----------
 // เปิดสายรับสัญญาณตาราง drugs · 1 ช่องต่อ 1 ตาราง (drugs-live) แยกจากช่องของ incidents
 // พอมีเครื่องไหน (หรือแอดมิน) insert/update/delete ยา → เรียก onChange() ให้แอปดึงคลังยาใหม่

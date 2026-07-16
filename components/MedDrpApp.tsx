@@ -50,6 +50,9 @@ import {
   isConfigured,
   subscribeIncidents,
   subscribeDrugs,
+  insertDrug,
+  updateDrug,
+  deleteDrug,
 } from "@/lib/data";
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
@@ -202,6 +205,13 @@ interface AppState {
   ddUp: boolean; // เมนู dropdown เด้งขึ้นบน (true) เมื่อช่องอยู่ครึ่งล่างจอ
   drugs: Drug[]; // คลังยา (autocomplete · โหลดครั้งเดียวแล้ว cache)
   drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น
+  // ---- หน้า "คลังยา" (จัดการ master data · v0.9.10.0) ----
+  drugSearch: string; // คำค้นในหน้าคลังยา
+  drugFilter: string; // ตัวกรอง: "" = ทั้งหมด · "had" · form (tab/injection) · "pregDX"
+  drugEdit: Partial<Drug> | null; // ยาที่กำลังเพิ่ม/แก้ในป๊อป (null = ปิด)
+  drugEditNew: boolean; // true = เพิ่มใหม่ · false = แก้ของเดิม
+  drugDelete: Drug | null; // ยาที่กำลังจะลบ (ป๊อปยืนยัน)
+  drugBusy: boolean; // กำลังบันทึก/ลบ (กันกดซ้ำ + โชว์สถานะ)
 }
 
 // ===== style generators (พอร์ตจาก renderVals) =====
@@ -311,6 +321,12 @@ export default function MedDrpApp() {
     ddUp: false,
     drugs: [],
     drugSug: null,
+    drugSearch: "",
+    drugFilter: "",
+    drugEdit: null,
+    drugEditNew: false,
+    drugDelete: null,
+    drugBusy: false,
   }));
 
   const stateRef = useRef(state);
@@ -571,6 +587,83 @@ export default function MedDrpApp() {
       } catch {}
     } catch {}
   }, [setState]);
+
+  // ---------- หน้า "คลังยา" (จัดการ master data) ----------
+  const openAddDrug = () => setState({ drugEdit: { had: false, renal: false }, drugEditNew: true });
+  const openEditDrug = (d: Drug) => setState({ drugEdit: { ...d }, drugEditNew: false });
+  const setDrugField = (k: keyof Drug, v: unknown) => setState((s) => ({ drugEdit: { ...(s.drugEdit || {}), [k]: v } }));
+  const saveDrug = async () => {
+    const d = stateRef.current.drugEdit;
+    const isNew = stateRef.current.drugEditNew;
+    if (!d || stateRef.current.drugBusy) return;
+    if (!String(d.generic || "").trim()) {
+      flash("กรุณากรอกชื่อยา (generic)");
+      return;
+    }
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) {
+      flash("ยังไม่ได้เชื่อมต่อ Supabase");
+      return;
+    }
+    setState({ drugBusy: true });
+    try {
+      if (isNew) await insertDrug(cfg, d);
+      else await updateDrug(cfg, d as Drug);
+    } catch {
+      setState({ drugBusy: false });
+      flash("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
+      return;
+    }
+    await refreshDrugs();
+    setState({ drugBusy: false, drugEdit: null });
+    flash(isNew ? "เพิ่มยาแล้ว ✓" : "บันทึกยาแล้ว ✓");
+  };
+  const doDeleteDrug = async () => {
+    const d = stateRef.current.drugDelete;
+    if (!d || stateRef.current.drugBusy) return;
+    const cfg = stateRef.current.cfg;
+    setState({ drugBusy: true });
+    try {
+      if (isConfigured(cfg)) await deleteDrug(cfg, d.id);
+    } catch {
+      setState({ drugBusy: false });
+      flash("ลบไม่สำเร็จ ลองใหม่อีกครั้ง");
+      return;
+    }
+    await refreshDrugs();
+    setState({ drugBusy: false, drugDelete: null });
+    flash("ลบยาแล้ว");
+  };
+  // ตัวกรอง + ค้นหา (ใช้ทั้ง render และปุ่มส่งออก)
+  const drugMatchesFilter = (d: Drug, filter: string): boolean => {
+    if (!filter) return true;
+    if (filter === "had") return !!d.had;
+    if (filter === "pregDX") return d.preg === "D" || d.preg === "X";
+    if (filter.startsWith("form:")) return (d.form || "") === filter.slice(5);
+    return true;
+  };
+  const getFilteredDrugs = (s: AppState): Drug[] => {
+    const q = (s.drugSearch || "").trim().toLowerCase();
+    return (s.drugs || []).filter((d) => drugMatchesFilter(d, s.drugFilter)).filter((d) => !q || drugSearchText(d).includes(q));
+  };
+  const exportDrugsCsv = () => {
+    const list = getFilteredDrugs(stateRef.current);
+    const cols = ["id", "generic", "strength", "unit", "percent", "form", "route", "release", "brand", "had", "preg", "renal"];
+    const esc = (v: unknown) => {
+      let s = String(v == null ? "" : v);
+      if (/^[=+\-@]/.test(s)) s = "'" + s; // กัน formula injection ใน Excel/Sheets
+      return '"' + s.replace(/"/g, '""') + '"';
+    };
+    const rows = list.map((d) => cols.map((c) => esc((d as unknown as Record<string, unknown>)[c])).join(","));
+    const csv = cols.join(",") + "\n" + rows.join("\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "drugs_export.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
 
   // ---------- mount ----------
   useEffect(() => {
@@ -1694,6 +1787,9 @@ export default function MedDrpApp() {
             <button onClick={() => setState({ view: "dashboard" })} style={css(navM(S.view === "dashboard"))}>
               สรุป
             </button>
+            <button onClick={() => setState({ view: "drugs" })} style={css(navM(S.view === "drugs"))}>
+              คลังยา
+            </button>
           </div>
         </div>
       ) : (
@@ -1728,6 +1824,9 @@ export default function MedDrpApp() {
             </button>
             <button onClick={() => setState({ view: "dashboard" })} style={css(nav(S.view === "dashboard"))}>
               Dashboard
+            </button>
+            <button onClick={() => setState({ view: "drugs" })} style={css(nav(S.view === "drugs"))}>
+              คลังยา
             </button>
             <button onClick={() => setState({ view: "settings" })} style={css(nav(S.view === "settings"))}>
               เกี่ยวกับ
@@ -1768,7 +1867,10 @@ export default function MedDrpApp() {
       {S.view === "records" && renderRecords()}
       {S.view === "settings" && renderSettings()}
       {S.view === "manage" && renderManage()}
+      {S.view === "drugs" && renderDrugsAdmin()}
       {dt2 && renderDetailModal()}
+      {S.drugEdit && renderDrugEditModal()}
+      {S.drugDelete && renderDrugDeleteModal()}
 
       {/* ยืนยันลบถาวร (ลบชั้น 2) — ต้องพิมพ์ HN ของเคสให้ตรง · คลิกนอกป๊อปไม่ปิด */}
       {S.hardTarget &&
@@ -3958,6 +4060,263 @@ export default function MedDrpApp() {
           >
             บันทึกการแก้ไข
           </HButton>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------- คลังยา (จัดการ master data) ----------------
+  function renderDrugsAdmin() {
+    const list = getFilteredDrugs(S);
+    const total = (S.drugs || []).length;
+    // ตัวกรองรูปแบบยา — เอา form ที่มีจริงในคลัง (บ่อยสุด 6 อันแรก)
+    const formCounts: Record<string, number> = {};
+    (S.drugs || []).forEach((d) => {
+      if (d.form) formCounts[d.form] = (formCounts[d.form] || 0) + 1;
+    });
+    const forms = Object.keys(formCounts)
+      .sort((a, b) => formCounts[b] - formCounts[a])
+      .slice(0, 6);
+    const filters: { key: string; label: string }[] = [
+      { key: "", label: "ทั้งหมด" },
+      { key: "had", label: "HAD" },
+      ...forms.map((fm) => ({ key: "form:" + fm, label: fm })),
+      { key: "pregDX", label: "Preg D/X" },
+    ];
+    const fchip = (on: boolean) =>
+      on
+        ? "border:1px solid " + AM + ";background:" + AM + ";color:" + AMT + ";border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;"
+        : "border:1px solid #CFE7E2;background:#EAF4F1;color:#0B655D;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;";
+    const tag = (bg: string, fg: string) => "font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:" + bg + ";color:" + fg + ";";
+    const rowBtn = "border:1px solid #DCE7E5;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#0B655D;";
+    const delBtn = "border:1px solid #F3C5C2;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#B91C1C;";
+    const doseText = (d: Drug) => [d.strength, d.unit].filter(Boolean).join(" ") + (d.percent ? " " + d.percent + "%" : "");
+
+    return (
+      <div style={css("max-width:1080px;margin:0 auto;padding:22px 16px 60px;")}>
+        <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:16px;padding:18px 20px;")}>
+          <div style={css("display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:10px;")}>
+            <div>
+              <div style={css("font-size:22px;font-weight:800;color:#0B655D;")}>💊 คลังยา</div>
+              <div style={css("font-size:12.5px;color:#64748B;margin-top:4px;")}>รายการยาทั้งหมดในระบบ · แก้ไขแล้วเข้า Supabase ทันที · ทุกเครื่องเห็นสด</div>
+            </div>
+            <div style={css("display:flex;gap:9px;")}>
+              <HButton onClick={() => exportDrugsCsv()} base="border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:13.5px;font-weight:700;padding:10px 16px;border-radius:10px;cursor:pointer;" hover="background:#F5FAF9">
+                ↓ ส่งออก CSV
+              </HButton>
+              <HButton onClick={() => openAddDrug()} base="border:none;background:#0F8A80;color:#fff;font-size:13.5px;font-weight:700;padding:10px 16px;border-radius:10px;cursor:pointer;" hover="background:#0B655D">
+                ＋ เพิ่มยา
+              </HButton>
+            </div>
+          </div>
+
+          <div style={css("margin:16px 0 14px;display:flex;flex-direction:column;gap:10px;")}>
+            <HInput
+              value={S.drugSearch}
+              onChange={(e) => setState({ drugSearch: e.target.value })}
+              placeholder="ค้นหาชื่อยา / ชื่อการค้า"
+              base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:14px;outline:none;"
+              focus={INPUT_FOCUS}
+            />
+            <div style={css("display:flex;gap:7px;flex-wrap:wrap;")}>
+              {filters.map((fl) => (
+                <button key={fl.key} onClick={() => setState({ drugFilter: fl.key })} style={css(fchip(S.drugFilter === fl.key))}>
+                  {fl.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {isMobile ? (
+            <div style={css("display:flex;flex-direction:column;gap:10px;")}>
+              {list.map((d) => (
+                <div key={d.id} style={css("border:1px solid #DEEBE8;border-radius:13px;padding:12px 14px;")}>
+                  <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;")}>
+                    <span style={css("font-weight:800;color:#0F172A;font-size:15px;")}>{d.generic}</span>
+                    {d.had && <span style={css(tag("#FDECEC", "#B42318"))}>HAD</span>}
+                    {d.preg && <span style={css(tag("#EEF2FF", "#3730A3"))}>Preg {d.preg}</span>}
+                  </div>
+                  <div style={css("font-size:12.5px;color:#475569;line-height:1.6;")}>
+                    {[doseText(d), d.form, d.route].filter(Boolean).join(" · ")}
+                    {d.brand ? " · " + d.brand : ""}
+                  </div>
+                  <div style={css("display:flex;gap:8px;margin-top:10px;")}>
+                    <button onClick={() => openEditDrug(d)} style={css(rowBtn)}>แก้ไข</button>
+                    <button onClick={() => setState({ drugDelete: d })} style={css(delBtn)}>ลบ</button>
+                  </div>
+                </div>
+              ))}
+              {list.length === 0 && <div style={css("padding:30px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบยาตามเงื่อนไข</div>}
+            </div>
+          ) : (
+            <div style={css("overflow-x:auto;")}>
+              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:820px;")}>
+                <thead>
+                  <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
+                    {["ชื่อยา (generic)", "ความแรง", "รูปแบบ", "ทางให้", "ชื่อการค้า", "ธง", "Preg", ""].map((h, i) => (
+                      <th key={i} style={css("padding:10px 12px;font-weight:600;white-space:nowrap;")}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {list.map((d) => (
+                    <HTr key={d.id} base="border-bottom:1px solid #F1F6F5;" hover="background:#F9FCFB">
+                      <td style={css("padding:11px 12px;color:#0F172A;font-weight:700;")}>{d.generic}</td>
+                      <td style={css("padding:11px 12px;color:#334155;white-space:nowrap;")}>{doseText(d) || "—"}</td>
+                      <td style={css("padding:11px 12px;color:#334155;")}>
+                        {d.form || "—"}
+                        {d.release ? " " + d.release : ""}
+                      </td>
+                      <td style={css("padding:11px 12px;color:#334155;")}>{d.route || "—"}</td>
+                      <td style={css("padding:11px 12px;color:#334155;")}>{d.brand || "—"}</td>
+                      <td style={css("padding:11px 12px;")}>{d.had ? <span style={css(tag("#FDECEC", "#B42318"))}>HAD</span> : ""}</td>
+                      <td style={css("padding:11px 12px;")}>{d.preg ? <span style={css(tag("#EEF2FF", "#3730A3"))}>{d.preg}</span> : "—"}</td>
+                      <td style={css("padding:11px 12px;white-space:nowrap;")}>
+                        <button onClick={() => openEditDrug(d)} style={css(rowBtn + "margin-right:6px;")}>แก้ไข</button>
+                        <button onClick={() => setState({ drugDelete: d })} style={css(delBtn)}>ลบ</button>
+                      </td>
+                    </HTr>
+                  ))}
+                </tbody>
+              </table>
+              {list.length === 0 && <div style={css("padding:30px;text-align:center;color:#94A3B8;font-size:14px;")}>ไม่พบยาตามเงื่อนไข</div>}
+            </div>
+          )}
+          <div style={css("font-size:12px;color:#64748B;margin-top:12px;")}>
+            แสดง {list.length} จาก {total} รายการ
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderDrugEditModal() {
+    const d = S.drugEdit!;
+    const fld = "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;";
+    const lab = "font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:5px;";
+    const tchip = (on: boolean) => chip(on) + "flex:1;text-align:center;";
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={css("position:fixed;inset:0;background:rgba(11,101,93,.4);backdrop-filter:blur(2px);z-index:85;display:flex;align-items:center;justify-content:center;padding:20px;")}
+      >
+        <div style={css("background:#fff;border-radius:18px;width:460px;max-width:100%;max-height:90vh;overflow:auto;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+          <div style={css("background:linear-gradient(150deg,#0F8A80,#0B655D);color:#fff;padding:16px 20px;font-weight:800;font-size:17px;")}>{S.drugEditNew ? "เพิ่มยา" : "แก้ไขยา"}</div>
+          <div style={css("padding:18px 20px;display:flex;flex-direction:column;gap:12px;")}>
+            <div>
+              <label style={css(lab)}>
+                ชื่อยา (generic) <span style={css("color:#DC2626;")}>*</span>
+              </label>
+              <HInput value={d.generic || ""} onChange={(e) => setDrugField("generic", e.target.value)} base={fld} focus={INPUT_FOCUS} />
+            </div>
+            <div style={css("display:flex;gap:10px;")}>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>ความแรง</label>
+                <HInput value={d.strength || ""} onChange={(e) => setDrugField("strength", e.target.value)} placeholder="500" base={fld} focus={INPUT_FOCUS} />
+              </div>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>หน่วย</label>
+                <HInput value={d.unit || ""} onChange={(e) => setDrugField("unit", e.target.value)} placeholder="mg" base={fld} focus={INPUT_FOCUS} />
+              </div>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>เข้มข้น (%)</label>
+                <HInput value={d.percent || ""} onChange={(e) => setDrugField("percent", e.target.value)} base={fld} focus={INPUT_FOCUS} />
+              </div>
+            </div>
+            <div style={css("display:flex;gap:10px;")}>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>รูปแบบ</label>
+                <HInput value={d.form || ""} onChange={(e) => setDrugField("form", e.target.value)} placeholder="tab, amp" base={fld} focus={INPUT_FOCUS} />
+              </div>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>ทางให้ยา</label>
+                <HInput value={d.route || ""} onChange={(e) => setDrugField("route", e.target.value)} placeholder="oral, IV" base={fld} focus={INPUT_FOCUS} />
+              </div>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>ปลดปล่อย</label>
+                <HInput value={d.release || ""} onChange={(e) => setDrugField("release", e.target.value)} placeholder="ER, SR" base={fld} focus={INPUT_FOCUS} />
+              </div>
+            </div>
+            <div>
+              <label style={css(lab)}>ชื่อการค้า</label>
+              <HInput value={d.brand || ""} onChange={(e) => setDrugField("brand", e.target.value)} base={fld} focus={INPUT_FOCUS} />
+            </div>
+            <div style={css("display:flex;gap:10px;")}>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>Preg category</label>
+                <HSelect value={d.preg || ""} onChange={(e) => setDrugField("preg", e.target.value)} base={fld} focus={INPUT_FOCUS}>
+                  {["", "A", "B", "C", "D", "X"].map((p) => (
+                    <option key={p} value={p}>
+                      {p || "—"}
+                    </option>
+                  ))}
+                </HSelect>
+              </div>
+              <div style={css("flex:1;")}>
+                <label style={css(lab)}>ปรับขนาดตามไต</label>
+                <div style={css("display:flex;gap:8px;")}>
+                  <button onClick={() => setDrugField("renal", false)} style={css(tchip(!d.renal))}>ไม่</button>
+                  <button onClick={() => setDrugField("renal", true)} style={css(tchip(!!d.renal))}>ใช่</button>
+                </div>
+              </div>
+            </div>
+            <div>
+              <label style={css(lab)}>ยา High-alert (HAD)</label>
+              <div style={css("display:flex;gap:8px;")}>
+                <button onClick={() => setDrugField("had", false)} style={css(tchip(!d.had))}>ไม่ใช่ HAD</button>
+                <button onClick={() => setDrugField("had", true)} style={css(tchip(!!d.had))}>เป็น HAD</button>
+              </div>
+            </div>
+            <div style={css("display:flex;gap:10px;margin-top:6px;")}>
+              <HButton onClick={() => setState({ drugEdit: null })} base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:12px;border-radius:11px;cursor:pointer;" hover="background:#F5FAF9">
+                ยกเลิก
+              </HButton>
+              <HButton
+                onClick={() => saveDrug()}
+                base={"flex:1;border:none;background:#0F8A80;color:#fff;font-size:14px;font-weight:700;padding:12px;border-radius:11px;cursor:pointer;" + (S.drugBusy ? "opacity:.6;pointer-events:none;" : "")}
+                hover="background:#0B655D"
+              >
+                {S.drugBusy ? "กำลังบันทึก…" : "บันทึก"}
+              </HButton>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function renderDrugDeleteModal() {
+    const d = S.drugDelete!;
+    const dose = [d.strength, d.unit].filter(Boolean).join(" ");
+    return (
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={css("position:fixed;inset:0;background:rgba(11,101,93,.45);z-index:88;display:flex;align-items:center;justify-content:center;padding:20px;")}
+      >
+        <div style={css("background:#fff;border-radius:16px;border-top:4px solid #DC2626;width:400px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+          <div style={css("font-size:16px;font-weight:800;color:#B91C1C;margin-bottom:8px;")}>ลบยาออกจากคลัง</div>
+          <div style={css("font-size:13.5px;color:#475569;line-height:1.6;margin-bottom:12px;")}>
+            ยานี้จะถูกลบออกจากคลัง (ไม่ขึ้นในตัวเลือกตอนกรอกอีก) · รายงานเก่าที่เคยเลือกยานี้ยังเก็บชื่อไว้ตามเดิม
+          </div>
+          <div style={css("background:#F6FAF9;border:1px solid #E3EFEC;border-radius:11px;padding:10px 13px;font-size:13px;color:#334155;margin-bottom:16px;")}>
+            <b style={css("color:#0B655D;")}>{d.generic}</b>
+            {dose ? " · " + dose : ""}
+            {d.form ? " · " + d.form : ""}
+          </div>
+          <div style={css("display:flex;gap:10px;")}>
+            <HButton onClick={() => setState({ drugDelete: null })} base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" hover="background:#F5FAF9">
+              ยกเลิก
+            </HButton>
+            <HButton
+              onClick={() => doDeleteDrug()}
+              base={"flex:1;border:none;background:#DC2626;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" + (S.drugBusy ? "opacity:.6;pointer-events:none;" : "")}
+              hover="background:#B91C1C"
+            >
+              {S.drugBusy ? "กำลังลบ…" : "ลบยา"}
+            </HButton>
+          </div>
         </div>
       </div>
     );

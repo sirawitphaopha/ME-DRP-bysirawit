@@ -117,4 +117,4 @@ export interface Drug {
   renal?: boolean;
 }
 
-export type ViewName = "form" | "records" | "dashboard" | "settings" | "manage";
+export type ViewName = "form" | "records" | "dashboard" | "settings" | "manage" | "drugs";
