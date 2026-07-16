@@ -1,5 +1,5 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Drug, Incident, SupabaseCfg } from "./types";
+import { Drug, DrugAudit, Incident, SupabaseCfg } from "./types";
 
 // คอลัมน์ที่ sync กับตาราง public.incidents
 const COLS = [
@@ -265,11 +265,23 @@ export async function updateDrug(cfg: SupabaseCfg, d: Drug): Promise<void> {
   if (error) throw error;
 }
 
-// ลบยา (ตาม id)
+// ลบยา (ตาม id) — หมายเหตุ: RLS ปิดลบจากเว็บแล้ว (0010) · เหลือลบผ่าน Supabase เท่านั้น · เก็บฟังก์ชันไว้เผื่ออนาคต
 export async function deleteDrug(cfg: SupabaseCfg, id: number): Promise<void> {
   const c = getClient(cfg);
   const { error } = await c.from("drugs").delete().eq("id", id);
   if (error) throw error;
+}
+
+// ดึงประวัติการแก้ไขของยา 1 ตัว (audit log · ล่าสุดขึ้นก่อน)
+export async function fetchDrugAudit(cfg: SupabaseCfg, drugId: number): Promise<DrugAudit[]> {
+  const c = getClient(cfg);
+  const { data, error } = await c
+    .from("drug_audit")
+    .select("*")
+    .eq("drug_id", drugId)
+    .order("changed_at", { ascending: false });
+  if (error) throw error;
+  return (data || []) as DrugAudit[];
 }
 
 // ---------- Realtime คลังยา ----------

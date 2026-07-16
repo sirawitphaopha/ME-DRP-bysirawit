@@ -52,11 +52,11 @@ import {
   subscribeDrugs,
   insertDrug,
   updateDrug,
-  deleteDrug,
+  fetchDrugAudit,
 } from "@/lib/data";
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
-import { DashRange, Drug, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
+import { DashRange, Drug, DrugAudit, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
 
 const ORG_NAME = "ห้องยา รพ.ปรางค์กู่";
 const DEFAULT_REPORTER = "";
@@ -210,8 +210,11 @@ interface AppState {
   drugFilter: string; // ตัวกรอง: "" = ทั้งหมด · "had" · form (tab/injection) · "pregDX"
   drugEdit: Partial<Drug> | null; // ยาที่กำลังเพิ่ม/แก้ในป๊อป (null = ปิด)
   drugEditNew: boolean; // true = เพิ่มใหม่ · false = แก้ของเดิม
-  drugDelete: Drug | null; // ยาที่กำลังจะลบ (ป๊อปยืนยัน)
-  drugBusy: boolean; // กำลังบันทึก/ลบ (กันกดซ้ำ + โชว์สถานะ)
+  drugEditOrig: Partial<Drug> | null; // สแนปช็อตตอนเปิดป๊อป (ใช้เช็คว่าแก้ค้างไหมก่อนปิด)
+  drugEditConfirmClose: boolean; // ป๊อปยืนยันปิดทั้งที่แก้ค้าง
+  drugLog: { drug: Drug; entries: DrugAudit[] } | null; // ป๊อปประวัติการแก้ไขของยา
+  drugLogLoading: boolean; // กำลังโหลดประวัติ
+  drugBusy: boolean; // กำลังบันทึก (กันกดซ้ำ + โชว์สถานะ)
 }
 
 // ===== style generators (พอร์ตจาก renderVals) =====
@@ -325,7 +328,10 @@ export default function MedDrpApp() {
     drugFilter: "",
     drugEdit: null,
     drugEditNew: false,
-    drugDelete: null,
+    drugEditOrig: null,
+    drugEditConfirmClose: false,
+    drugLog: null,
+    drugLogLoading: false,
     drugBusy: false,
   }));
 
@@ -589,9 +595,36 @@ export default function MedDrpApp() {
   }, [setState]);
 
   // ---------- หน้า "คลังยา" (จัดการ master data) ----------
-  const openAddDrug = () => setState({ drugEdit: { had: false, renal: false }, drugEditNew: true });
-  const openEditDrug = (d: Drug) => setState({ drugEdit: { ...d }, drugEditNew: false });
+  const openAddDrug = () => {
+    const blank = { had: false, renal: false };
+    setState({ drugEdit: { ...blank }, drugEditOrig: { ...blank }, drugEditNew: true, drugEditConfirmClose: false });
+  };
+  const openEditDrug = (d: Drug) => setState({ drugEdit: { ...d }, drugEditOrig: { ...d }, drugEditNew: false, drugEditConfirmClose: false });
   const setDrugField = (k: keyof Drug, v: unknown) => setState((s) => ({ drugEdit: { ...(s.drugEdit || {}), [k]: v } }));
+  // แก้ค้างไหม (เทียบกับตอนเปิด)
+  const drugEditDirty = () => JSON.stringify(stateRef.current.drugEdit || {}) !== JSON.stringify(stateRef.current.drugEditOrig || {});
+  // ขอปิดป๊อป — ถ้าแก้ค้างต้องยืนยันก่อน (กันเผลอปิดแล้วที่แก้หาย) · กดที่ว่างนอกป๊อปไม่ปิดอยู่แล้ว
+  const requestCloseDrugEdit = () => {
+    if (drugEditDirty()) setState({ drugEditConfirmClose: true });
+    else setState({ drugEdit: null, drugEditOrig: null });
+  };
+  const forceCloseDrugEdit = () => setState({ drugEdit: null, drugEditOrig: null, drugEditConfirmClose: false });
+  // เปิดประวัติการแก้ไขของยา
+  const openDrugLog = async (d: Drug) => {
+    setState({ drugLog: { drug: d, entries: [] }, drugLogLoading: true });
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) {
+      setState({ drugLogLoading: false });
+      return;
+    }
+    try {
+      const entries = await fetchDrugAudit(cfg, d.id);
+      // กันกรณีผู้ใช้ปิดไปแล้ว/เปิดยาอื่นก่อนโหลดเสร็จ
+      if (stateRef.current.drugLog && stateRef.current.drugLog.drug.id === d.id) setState({ drugLog: { drug: d, entries }, drugLogLoading: false });
+    } catch {
+      setState({ drugLogLoading: false });
+    }
+  };
   const saveDrug = async () => {
     const d = stateRef.current.drugEdit;
     const isNew = stateRef.current.drugEditNew;
@@ -615,24 +648,8 @@ export default function MedDrpApp() {
       return;
     }
     await refreshDrugs();
-    setState({ drugBusy: false, drugEdit: null });
+    setState({ drugBusy: false, drugEdit: null, drugEditOrig: null, drugEditConfirmClose: false });
     flash(isNew ? "เพิ่มยาแล้ว ✓" : "บันทึกยาแล้ว ✓");
-  };
-  const doDeleteDrug = async () => {
-    const d = stateRef.current.drugDelete;
-    if (!d || stateRef.current.drugBusy) return;
-    const cfg = stateRef.current.cfg;
-    setState({ drugBusy: true });
-    try {
-      if (isConfigured(cfg)) await deleteDrug(cfg, d.id);
-    } catch {
-      setState({ drugBusy: false });
-      flash("ลบไม่สำเร็จ ลองใหม่อีกครั้ง");
-      return;
-    }
-    await refreshDrugs();
-    setState({ drugBusy: false, drugDelete: null });
-    flash("ลบยาแล้ว");
   };
   // ตัวกรอง + ค้นหา (ใช้ทั้ง render และปุ่มส่งออก)
   const drugMatchesFilter = (d: Drug, filter: string): boolean => {
@@ -1870,7 +1887,7 @@ export default function MedDrpApp() {
       {S.view === "drugs" && renderDrugsAdmin()}
       {dt2 && renderDetailModal()}
       {S.drugEdit && renderDrugEditModal()}
-      {S.drugDelete && renderDrugDeleteModal()}
+      {S.drugLog && renderDrugLogModal()}
 
       {/* ยืนยันลบถาวร (ลบชั้น 2) — ต้องพิมพ์ HN ของเคสให้ตรง · คลิกนอกป๊อปไม่ปิด */}
       {S.hardTarget &&
@@ -4089,7 +4106,6 @@ export default function MedDrpApp() {
         : "border:1px solid #CFE7E2;background:#EAF4F1;color:#0B655D;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;";
     const tag = (bg: string, fg: string) => "font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:" + bg + ";color:" + fg + ";";
     const rowBtn = "border:1px solid #DCE7E5;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#0B655D;";
-    const delBtn = "border:1px solid #F3C5C2;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#B91C1C;";
     const doseText = (d: Drug) => [d.strength, d.unit].filter(Boolean).join(" ") + (d.percent ? " " + d.percent + "%" : "");
 
     return (
@@ -4142,7 +4158,7 @@ export default function MedDrpApp() {
                   </div>
                   <div style={css("display:flex;gap:8px;margin-top:10px;")}>
                     <button onClick={() => openEditDrug(d)} style={css(rowBtn)}>แก้ไข</button>
-                    <button onClick={() => setState({ drugDelete: d })} style={css(delBtn)}>ลบ</button>
+                    <button onClick={() => openDrugLog(d)} style={css(rowBtn)}>ประวัติ</button>
                   </div>
                 </div>
               ))}
@@ -4175,7 +4191,7 @@ export default function MedDrpApp() {
                       <td style={css("padding:11px 12px;")}>{d.preg ? <span style={css(tag("#EEF2FF", "#3730A3"))}>{d.preg}</span> : "—"}</td>
                       <td style={css("padding:11px 12px;white-space:nowrap;")}>
                         <button onClick={() => openEditDrug(d)} style={css(rowBtn + "margin-right:6px;")}>แก้ไข</button>
-                        <button onClick={() => setState({ drugDelete: d })} style={css(delBtn)}>ลบ</button>
+                        <button onClick={() => openDrugLog(d)} style={css(rowBtn)}>ประวัติ</button>
                       </td>
                     </HTr>
                   ))}
@@ -4270,7 +4286,7 @@ export default function MedDrpApp() {
               </div>
             </div>
             <div style={css("display:flex;gap:10px;margin-top:6px;")}>
-              <HButton onClick={() => setState({ drugEdit: null })} base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:12px;border-radius:11px;cursor:pointer;" hover="background:#F5FAF9">
+              <HButton onClick={() => requestCloseDrugEdit()} base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:12px;border-radius:11px;cursor:pointer;" hover="background:#F5FAF9">
                 ยกเลิก
               </HButton>
               <HButton
@@ -4283,39 +4299,117 @@ export default function MedDrpApp() {
             </div>
           </div>
         </div>
+        {/* ยืนยันปิดทั้งที่แก้ค้าง — คลิกนอกป๊อปไม่ปิด ต้องกดปุ่มเอง */}
+        {S.drugEditConfirmClose && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={css("position:fixed;inset:0;background:rgba(11,101,93,.5);z-index:87;display:flex;align-items:center;justify-content:center;padding:20px;")}
+          >
+            <div style={css("background:#fff;border-radius:16px;width:380px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+              <div style={css("font-size:16px;font-weight:800;color:#0B655D;margin-bottom:8px;")}>ปิดโดยไม่บันทึก</div>
+              <div style={css("font-size:14px;color:#475569;line-height:1.55;margin-bottom:18px;")}>กำลังแก้ไขข้อมูลยาอยู่ ถ้าปิดตอนนี้ สิ่งที่แก้ไว้จะหาย</div>
+              <div style={css("display:flex;gap:10px;")}>
+                <HButton onClick={() => forceCloseDrugEdit()} base="flex:1;border:none;background:#DC2626;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" hover="background:#B91C1C">
+                  ทิ้งการแก้ไข
+                </HButton>
+                <HButton onClick={() => setState({ drugEditConfirmClose: false })} base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" hover="background:#F5FAF9">
+                  กลับไปแก้ต่อ
+                </HButton>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
-  function renderDrugDeleteModal() {
-    const d = S.drugDelete!;
-    const dose = [d.strength, d.unit].filter(Boolean).join(" ");
+  // ประวัติการแก้ไขของยา (audit log · อ่านอย่างเดียว · กดที่ว่างปิดได้)
+  function renderDrugLogModal() {
+    const lg = S.drugLog!;
+    const FIELD_TH: Record<string, string> = {
+      generic: "ชื่อยา",
+      strength: "ความแรง",
+      unit: "หน่วย",
+      percent: "เข้มข้น(%)",
+      form: "รูปแบบ",
+      route: "ทางให้",
+      release: "ปลดปล่อย",
+      brand: "ชื่อการค้า",
+      had: "HAD",
+      preg: "Preg",
+      renal: "ปรับตามไต",
+    };
+    const fmtVal = (k: string, v: unknown) => {
+      if (v === null || v === undefined || v === "") return "—";
+      if (k === "had" || k === "renal") return v ? "ใช่" : "ไม่";
+      return String(v);
+    };
+    const diffFields = (o?: Partial<Drug> | null, n?: Partial<Drug> | null) => {
+      const out: { k: string; from: string; to: string }[] = [];
+      Object.keys(FIELD_TH).forEach((k) => {
+        const ov = (o || {})[k as keyof Drug];
+        const nv = (n || {})[k as keyof Drug];
+        if (String(ov ?? "") !== String(nv ?? "")) out.push({ k, from: fmtVal(k, ov), to: fmtVal(k, nv) });
+      });
+      return out;
+    };
+    const actionLabel = (a: string) => (a === "INSERT" ? "เพิ่มเข้าคลัง" : a === "DELETE" ? "ลบออกจากคลัง" : "แก้ไข");
+    const actionStyle = (a: string) =>
+      "font-size:11.5px;font-weight:800;padding:2px 9px;border-radius:999px;" +
+      (a === "INSERT" ? "background:#E7F3F1;color:#0B655D;" : a === "DELETE" ? "background:#FDECEC;color:#B42318;" : "background:#FEF3E2;color:#B45309;");
     return (
       <div
-        onClick={(e) => e.stopPropagation()}
-        style={css("position:fixed;inset:0;background:rgba(11,101,93,.45);z-index:88;display:flex;align-items:center;justify-content:center;padding:20px;")}
+        onClick={() => setState({ drugLog: null })}
+        style={css("position:fixed;inset:0;background:rgba(11,101,93,.4);backdrop-filter:blur(2px);z-index:86;display:flex;align-items:center;justify-content:center;padding:20px;")}
       >
-        <div style={css("background:#fff;border-radius:16px;border-top:4px solid #DC2626;width:400px;max-width:100%;padding:22px;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
-          <div style={css("font-size:16px;font-weight:800;color:#B91C1C;margin-bottom:8px;")}>ลบยาออกจากคลัง</div>
-          <div style={css("font-size:13.5px;color:#475569;line-height:1.6;margin-bottom:12px;")}>
-            ยานี้จะถูกลบออกจากคลัง (ไม่ขึ้นในตัวเลือกตอนกรอกอีก) · รายงานเก่าที่เคยเลือกยานี้ยังเก็บชื่อไว้ตามเดิม
+        <div onClick={(e) => e.stopPropagation()} style={css("background:#fff;border-radius:18px;width:480px;max-width:100%;max-height:88vh;overflow:auto;box-shadow:0 30px 70px -20px rgba(11,101,93,.6);")}>
+          <div style={css("background:linear-gradient(150deg,#0F8A80,#0B655D);color:#fff;padding:16px 20px;")}>
+            <div style={css("font-weight:800;font-size:17px;")}>ประวัติการแก้ไข</div>
+            <div style={css("font-size:12.5px;color:#CDEBE5;margin-top:2px;")}>{lg.drug.generic}</div>
           </div>
-          <div style={css("background:#F6FAF9;border:1px solid #E3EFEC;border-radius:11px;padding:10px 13px;font-size:13px;color:#334155;margin-bottom:16px;")}>
-            <b style={css("color:#0B655D;")}>{d.generic}</b>
-            {dose ? " · " + dose : ""}
-            {d.form ? " · " + d.form : ""}
-          </div>
-          <div style={css("display:flex;gap:10px;")}>
-            <HButton onClick={() => setState({ drugDelete: null })} base="flex:1;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" hover="background:#F5FAF9">
-              ยกเลิก
-            </HButton>
-            <HButton
-              onClick={() => doDeleteDrug()}
-              base={"flex:1;border:none;background:#DC2626;color:#fff;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;" + (S.drugBusy ? "opacity:.6;pointer-events:none;" : "")}
-              hover="background:#B91C1C"
+          <div style={css("padding:16px 20px;")}>
+            {S.drugLogLoading ? (
+              <div style={css("text-align:center;color:#94A3B8;font-size:14px;padding:24px;")}>กำลังโหลด…</div>
+            ) : lg.entries.length === 0 ? (
+              <div style={css("text-align:center;color:#94A3B8;font-size:14px;padding:24px;")}>ยังไม่มีประวัติการแก้ไข</div>
+            ) : (
+              <div style={css("display:flex;flex-direction:column;gap:11px;")}>
+                {lg.entries.map((e) => {
+                  const changes = e.action === "UPDATE" ? diffFields(e.old_data, e.new_data) : [];
+                  return (
+                    <div key={e.id} style={css("border:1px solid #E3EFEC;border-radius:12px;padding:11px 13px;")}>
+                      <div style={css("display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:wrap;")}>
+                        <span style={css(actionStyle(e.action))}>{actionLabel(e.action)}</span>
+                        <span style={css("font-size:12px;color:#64748B;")}>{fmtThaiDateTime(e.changed_at)}</span>
+                      </div>
+                      {e.action === "UPDATE" ? (
+                        changes.length ? (
+                          <div style={css("display:flex;flex-direction:column;gap:3px;")}>
+                            {changes.map((c) => (
+                              <div key={c.k} style={css("font-size:12.5px;color:#334155;line-height:1.5;")}>
+                                <span style={css("color:#94A3B8;")}>{FIELD_TH[c.k]}:</span> {c.from} <span style={css("color:#0F8A80;font-weight:700;")}>→</span> {c.to}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={css("font-size:12.5px;color:#94A3B8;")}>ไม่มีการเปลี่ยนแปลงข้อมูล</div>
+                        )
+                      ) : e.action === "INSERT" ? (
+                        <div style={css("font-size:12.5px;color:#475569;")}>เพิ่ม “{e.new_data?.generic || lg.drug.generic}” เข้าคลัง</div>
+                      ) : (
+                        <div style={css("font-size:12.5px;color:#475569;")}>ลบ “{e.old_data?.generic || lg.drug.generic}” ออกจากคลัง</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              onClick={() => setState({ drugLog: null })}
+              style={css("width:100%;margin-top:14px;border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:14px;font-weight:700;padding:11px;border-radius:11px;cursor:pointer;")}
             >
-              {S.drugBusy ? "กำลังลบ…" : "ลบยา"}
-            </HButton>
+              ปิด
+            </button>
           </div>
         </div>
       </div>

@@ -117,4 +117,14 @@ export interface Drug {
   renal?: boolean;
 }
 
+// ประวัติการแก้ไขคลังยา (ตาราง drug_audit · log จาก trigger)
+export interface DrugAudit {
+  id: number;
+  drug_id: number | null;
+  action: string; // INSERT / UPDATE / DELETE
+  changed_at: string;
+  old_data?: Partial<Drug> | null;
+  new_data?: Partial<Drug> | null;
+}
+
 export type ViewName = "form" | "records" | "dashboard" | "settings" | "manage" | "drugs";
