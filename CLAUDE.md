@@ -31,7 +31,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.10.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.10.1) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -121,6 +121,7 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
   - **Audit log:** ตาราง `drug_audit` + trigger `log_drug_change` (SECURITY DEFINER · migration `0010`) จับทุก insert/update/delete ของ drugs → เก็บ old/new (jsonb)+เวลา · **จับได้แม้แก้ตรงใน Supabase** · ปุ่ม "ประวัติ" → `fetchDrugAudit` → `renderDrugLogModal` (ไทม์ไลน์ + diff ราย field เช่น "ชื่อยา: เก่า→ใหม่", "การแสดงผล: แสดง→ซ่อน")
   - **ป๊อปแก้ไขกันปิดพลาด:** กดที่ว่างไม่ปิด + แก้ค้างแล้วกดยกเลิก = ป๊อปยืนยัน "ปิดโดยไม่บันทึก" (`drugEditOrig` เทียบ dirty · `requestCloseDrugEdit`/`forceCloseDrugEdit`)
   - migrations Phase 1: `0009_drugs_writable` · `0010_drug_audit` · `0011_drugs_hidden` — **applied ขึ้น Supabase แล้ว** (0011 พี่กันรันเองผ่าน SQL Editor · ยืนยันครบ: hidden=1, id identity=YES, policy=INSERT/SELECT/UPDATE, drug_audit=มี, trigger=1, ยา 417)
+  - **ปรับ UI ตาม feedback (v0.9.10.1):** แถบค้นหา+ตัวกรอง **sticky** (`top` เดสก์ท็อป 58/มือถือ 94 · หัวข้อไม่ตรึง) · ปุ่มลอย **↑↓** เลื่อนบนสุด/ล่างสุด (`scrollTo` smooth) · หัวคอลัมน์ **สีเข้ม teal กดเรียงได้** (`toggleDrugSort`/`sortDrugs` · id=ตัวเลข, had=boolean, ที่เหลือ localeCompare th · ลูกศร ▲▼/↕) · คอลัมน์: เพิ่ม **ID** · ย้าย **ชื่อการค้า**มาที่ 2 · "ธง"→**"HAD"** · ชื่อยากว้าง (`colgroup` · generic auto · ความแรง 104px · `table-layout:fixed`) · ตัวกรอง **เลือกหลายอัน** (`drugFilters[]` · form=OR, HAD/PregDX=AND · กดซ้ำยกเลิก) + ปุ่ม **✕ ล้างตัวกรอง** (เอา "ทั้งหมด" ออก) · ป๊อปแก้ไข **ล็อก body scroll** (กันเพจหลังเลื่อน · effect ตอน drugEdit/drugLog เปิด) · **หน่วย/รูปแบบ/ทางให้ยา เป็น dropdown** (helper `distinct` จากค่าที่มีจริงในคลัง · คงค่าปัจจุบันถ้าไม่อยู่ในลิสต์)
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)
