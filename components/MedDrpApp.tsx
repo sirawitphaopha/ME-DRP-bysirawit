@@ -651,7 +651,27 @@ export default function MedDrpApp() {
     setState({ drugBusy: false, drugEdit: null, drugEditOrig: null, drugEditConfirmClose: false });
     flash(isNew ? "เพิ่มยาแล้ว ✓" : "บันทึกยาแล้ว ✓");
   };
-  // ตัวกรอง + ค้นหา (ใช้ทั้ง render และปุ่มส่งออก)
+  // ซ่อน / เอากลับมาแสดง — ผ่าน updateDrug (trigger จะเก็บ log ให้) · ลบจริงไม่ได้จากเว็บ
+  const setDrugHidden = async (d: Drug, hidden: boolean) => {
+    if (stateRef.current.drugBusy) return;
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) {
+      flash("ยังไม่ได้เชื่อมต่อ Supabase");
+      return;
+    }
+    setState({ drugBusy: true });
+    try {
+      await updateDrug(cfg, { ...d, hidden });
+    } catch {
+      setState({ drugBusy: false });
+      flash(hidden ? "ซ่อนไม่สำเร็จ ลองใหม่อีกครั้ง" : "เอากลับไม่สำเร็จ ลองใหม่อีกครั้ง");
+      return;
+    }
+    await refreshDrugs();
+    setState({ drugBusy: false });
+    flash(hidden ? "ซ่อนยาแล้ว · ดูได้ที่ตั้งค่า" : "เอายากลับมาแสดงแล้ว ✓");
+  };
+  // ตัวกรอง + ค้นหา (ใช้ทั้ง render และปุ่มส่งออก) — หน้าคลังยาโชว์เฉพาะยาที่ไม่ถูกซ่อน
   const drugMatchesFilter = (d: Drug, filter: string): boolean => {
     if (!filter) return true;
     if (filter === "had") return !!d.had;
@@ -661,7 +681,10 @@ export default function MedDrpApp() {
   };
   const getFilteredDrugs = (s: AppState): Drug[] => {
     const q = (s.drugSearch || "").trim().toLowerCase();
-    return (s.drugs || []).filter((d) => drugMatchesFilter(d, s.drugFilter)).filter((d) => !q || drugSearchText(d).includes(q));
+    return (s.drugs || [])
+      .filter((d) => !d.hidden)
+      .filter((d) => drugMatchesFilter(d, s.drugFilter))
+      .filter((d) => !q || drugSearchText(d).includes(q));
   };
   const exportDrugsCsv = () => {
     const list = getFilteredDrugs(stateRef.current);
@@ -2460,7 +2483,7 @@ export default function MedDrpApp() {
         {rows.map((val, i) => {
           const active = !!(sug && sug.i === i && sug.term.trim() !== "");
           const term = active ? sug!.term.trim().toLowerCase() : "";
-          const matches = active ? S.drugs.filter((d) => drugSearchText(d).includes(term)).slice(0, 25) : [];
+          const matches = active ? S.drugs.filter((d) => !d.hidden && drugSearchText(d).includes(term)).slice(0, 25) : [];
           // ไฮไลต์คำค้นในข้อความ (ชื่อ generic / ชื่อการค้า)
           const hl = (text: string) => {
             if (!term) return text;
@@ -4085,7 +4108,8 @@ export default function MedDrpApp() {
   // ---------------- คลังยา (จัดการ master data) ----------------
   function renderDrugsAdmin() {
     const list = getFilteredDrugs(S);
-    const total = (S.drugs || []).length;
+    const total = (S.drugs || []).filter((d) => !d.hidden).length;
+    const hiddenCount = (S.drugs || []).filter((d) => d.hidden).length;
     // ตัวกรองรูปแบบยา — เอา form ที่มีจริงในคลัง (บ่อยสุด 6 อันแรก)
     const formCounts: Record<string, number> = {};
     (S.drugs || []).forEach((d) => {
@@ -4106,6 +4130,7 @@ export default function MedDrpApp() {
         : "border:1px solid #CFE7E2;background:#EAF4F1;color:#0B655D;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer;";
     const tag = (bg: string, fg: string) => "font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:" + bg + ";color:" + fg + ";";
     const rowBtn = "border:1px solid #DCE7E5;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#0B655D;";
+    const hideBtn = "border:1px solid #F0D8AE;background:#FEF7EC;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#B45309;";
     const doseText = (d: Drug) => [d.strength, d.unit].filter(Boolean).join(" ") + (d.percent ? " " + d.percent + "%" : "");
 
     return (
@@ -4159,6 +4184,7 @@ export default function MedDrpApp() {
                   <div style={css("display:flex;gap:8px;margin-top:10px;")}>
                     <button onClick={() => openEditDrug(d)} style={css(rowBtn)}>แก้ไข</button>
                     <button onClick={() => openDrugLog(d)} style={css(rowBtn)}>ประวัติ</button>
+                    <button onClick={() => setDrugHidden(d, true)} style={css(hideBtn)}>ซ่อน</button>
                   </div>
                 </div>
               ))}
@@ -4191,7 +4217,8 @@ export default function MedDrpApp() {
                       <td style={css("padding:11px 12px;")}>{d.preg ? <span style={css(tag("#EEF2FF", "#3730A3"))}>{d.preg}</span> : "—"}</td>
                       <td style={css("padding:11px 12px;white-space:nowrap;")}>
                         <button onClick={() => openEditDrug(d)} style={css(rowBtn + "margin-right:6px;")}>แก้ไข</button>
-                        <button onClick={() => openDrugLog(d)} style={css(rowBtn)}>ประวัติ</button>
+                        <button onClick={() => openDrugLog(d)} style={css(rowBtn + "margin-right:6px;")}>ประวัติ</button>
+                        <button onClick={() => setDrugHidden(d, true)} style={css(hideBtn)}>ซ่อน</button>
                       </td>
                     </HTr>
                   ))}
@@ -4202,6 +4229,15 @@ export default function MedDrpApp() {
           )}
           <div style={css("font-size:12px;color:#64748B;margin-top:12px;")}>
             แสดง {list.length} จาก {total} รายการ
+            {hiddenCount > 0 ? (
+              <span>
+                {" · ซ่อนอยู่ " + hiddenCount + " รายการ ("}
+                <span onClick={() => setState({ view: "manage" })} style={css("color:#0F8A80;font-weight:700;cursor:pointer;text-decoration:underline;")}>
+                  ดูที่ตั้งค่า
+                </span>
+                {")"}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -4338,8 +4374,10 @@ export default function MedDrpApp() {
       had: "HAD",
       preg: "Preg",
       renal: "ปรับตามไต",
+      hidden: "การแสดงผล",
     };
     const fmtVal = (k: string, v: unknown) => {
+      if (k === "hidden") return v ? "ซ่อน" : "แสดง";
       if (v === null || v === undefined || v === "") return "—";
       if (k === "had" || k === "renal") return v ? "ใช่" : "ไม่";
       return String(v);
@@ -4421,6 +4459,7 @@ export default function MedDrpApp() {
   function renderManage() {
     const mCard = "background:#fff;border:1px solid #E3EFEC;border-radius:16px;padding:18px 20px;display:flex;align-items:flex-start;gap:13px;";
     const soon = "flex:none;background:#FEF3E2;color:#B45309;font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;";
+    const hiddenDrugs = (S.drugs || []).filter((d) => d.hidden).sort((a, b) => a.generic.localeCompare(b.generic));
     const items = [
       { icon: "👥", title: "จัดการรายชื่อผู้รายงาน", desc: "เพิ่ม / ลบ / แก้ไขรายชื่อผู้รายงานเองได้ (ตอนนี้มี 16 คน)" },
       { icon: "🔽", title: "จัดการตัวเลือกในฟอร์ม", desc: "ประเภท Error · ประเภท DRP · จุดที่พบ · การ Intervention" },
@@ -4488,6 +4527,43 @@ export default function MedDrpApp() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+
+        {/* ยาที่ซ่อนอยู่ — กดเอากลับมาแสดงได้ (ลบจริงต้องทำใน Supabase) */}
+        <div style={css("background:#fff;border:1px solid #E3EFEC;border-radius:16px;padding:18px 20px;")}>
+          <div style={css("font-size:15px;font-weight:800;color:#0B655D;")}>💊 ยาที่ซ่อนอยู่</div>
+          <div style={css("font-size:12px;color:#64748B;margin-top:3px;line-height:1.5;")}>
+            ยาที่ซ่อนจะไม่โผล่ในการค้นหา/ตอนกรอกรายงาน · กดเอากลับมาแสดงได้ (ลบจริงทำได้เฉพาะใน Supabase)
+          </div>
+          {hiddenDrugs.length === 0 ? (
+            <div style={css("text-align:center;color:#94A3B8;font-size:13px;padding:20px 0 6px;")}>ไม่มียาที่ซ่อนอยู่</div>
+          ) : (
+            <div style={css("display:flex;flex-direction:column;gap:11px;margin-top:14px;")}>
+              {hiddenDrugs.map((d) => (
+                <div key={d.id} style={css("border:1px solid #E3EFEC;border-radius:13px;padding:12px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;")}>
+                  <div style={css("flex:1;min-width:0;")}>
+                    <div style={css("font-size:14.5px;font-weight:700;color:#0F172A;")}>{d.generic}</div>
+                    <div style={css("font-size:12px;color:#64748B;margin-top:2px;")}>
+                      {[[d.strength, d.unit].filter(Boolean).join(" "), d.form, d.route].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <HButton
+                    onClick={() => setDrugHidden(d, false)}
+                    base={
+                      "border:1.5px solid #DCE7E5;background:#fff;color:#0B655D;font-size:13px;font-weight:700;padding:8px 14px;border-radius:9px;cursor:pointer;" +
+                      (S.drugBusy ? "opacity:.5;pointer-events:none;" : "")
+                    }
+                    hover="background:#F5FAF9"
+                  >
+                    ↩ เอากลับมาแสดง
+                  </HButton>
+                  <button onClick={() => openDrugLog(d)} style={css("border:1px solid #DCE7E5;background:#fff;border-radius:9px;padding:8px 12px;font-size:13px;font-weight:700;cursor:pointer;color:#0B655D;")}>
+                    ประวัติ
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>

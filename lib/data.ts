@@ -239,7 +239,7 @@ export async function fetchDrugs(cfg: SupabaseCfg): Promise<Drug[]> {
 }
 
 // ---------- แก้ไขคลังยา (หน้า "คลังยา" · v0.9.10.0) ----------
-const DRUG_COLS = ["generic", "strength", "unit", "percent", "form", "route", "release", "brand", "had", "preg", "renal"] as const;
+const DRUG_COLS = ["generic", "strength", "unit", "percent", "form", "route", "release", "brand", "had", "preg", "renal", "hidden"] as const;
 function drugRow(d: Partial<Drug>): Record<string, unknown> {
   const r: Record<string, unknown> = {};
   for (const col of DRUG_COLS) {

@@ -115,6 +115,7 @@ export interface Drug {
   had?: boolean;
   preg?: string | null;
   renal?: boolean;
+  hidden?: boolean; // ซ่อนยา — true = ไม่โผล่ในค้นหา/ตอนกรอก (แต่ยังอยู่ในคลัง · กู้กลับได้ที่ตั้งค่า)
 }
 
 // ประวัติการแก้ไขคลังยา (ตาราง drug_audit · log จาก trigger)
