@@ -205,7 +205,8 @@ interface AppState {
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
   ddUp: boolean; // เมนู dropdown เด้งขึ้นบน (true) เมื่อช่องอยู่ครึ่งล่างจอ
   drugs: Drug[]; // คลังยา (autocomplete · โหลดครั้งเดียวแล้ว cache)
-  drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น
+  drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น (หน้ากรอก)
+  efDrugSug: { i: number; term: string } | null; // suggest ช่องยาในโหมดแก้ไข (Phase 3)
   // ---- หน้า "คลังยา" (จัดการ master data · v0.9.10.0) ----
   drugSearch: string; // คำค้นในหน้าคลังยา
   drugFilters: string[]; // ตัวกรองแบบเลือกหลายอัน: "had" · "form:<value>" · "pregDX" (ว่าง = ทั้งหมด)
@@ -326,6 +327,7 @@ export default function MedDrpApp() {
     ddUp: false,
     drugs: [],
     drugSug: null,
+    efDrugSug: null,
     drugSearch: "",
     drugFilters: [],
     drugSort: null,
@@ -1326,9 +1328,51 @@ export default function MedDrpApp() {
   };
 
   // ---------- edit ----------
-  const startEdit = () => setState((s) => ({ editMode: true, showHistory: false, editForm: { ...s.detail } }));
+  // เปิดโหมดแก้ไข — normalize drugs/drug_ids ให้เป็น array พร้อมใช้ picker (Phase 3)
+  const startEdit = () =>
+    setState((s) => {
+      const det = s.detail!;
+      const drugs = det.drugs && det.drugs.length ? det.drugs.slice() : det.drug ? String(det.drug).split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean) : [];
+      if (!drugs.length) drugs.push("");
+      const ids = (det.drug_ids || []).slice();
+      while (ids.length < drugs.length) ids.push(null);
+      return { editMode: true, showHistory: false, efDrugSug: null, editForm: { ...det, drugs, drug_ids: ids } };
+    });
   const cancelEdit = () => setState({ editMode: false });
   const setEf = (k: string, v: unknown) => setState((s) => ({ editForm: { ...s.editForm, [k]: v } }));
+  // ช่องยาในโหมดแก้ไข (Phase 3) — ใช้ picker เดียวกับหน้ากรอก · ผูก drug_ids เหมือนกัน
+  const setEfDrugAt = (i: number, v: string) =>
+    setState((s) => {
+      const d = (s.editForm.drugs || [""]).slice();
+      d[i] = v;
+      const ids = alignIds(s.editForm.drug_ids || [], d.length);
+      ids[i] = null;
+      return { editForm: { ...s.editForm, drugs: d, drug_ids: ids } };
+    });
+  const addEfDrug = () =>
+    setState((s) => ({ editForm: { ...s.editForm, drugs: [...(s.editForm.drugs || [""]), ""], drug_ids: [...(s.editForm.drug_ids || []), null] } }));
+  const pickEfDrug = (i: number, d: Drug) =>
+    setState((s) => {
+      const arr = (s.editForm.drugs || [""]).slice();
+      arr[i] = drugFlatLine(d);
+      const ids = alignIds(s.editForm.drug_ids || [], arr.length);
+      ids[i] = d.id;
+      const ef2 = { ...s.editForm, drugs: arr, drug_ids: ids };
+      if (d.had) ef2.high_alert = true; // เลือกยา HAD → ติดธงให้
+      return { editForm: ef2, efDrugSug: null };
+    });
+  const removeEfDrug = (i: number) =>
+    setState((s) => {
+      const d = (s.editForm.drugs || [""]).slice();
+      const ids = alignIds(s.editForm.drug_ids || [], d.length);
+      d.splice(i, 1);
+      ids.splice(i, 1);
+      if (!d.length) {
+        d.push("");
+        ids.push(null);
+      }
+      return { editForm: { ...s.editForm, drugs: d, drug_ids: ids } };
+    });
   // #12: โหมดแก้ไข — เปลี่ยนจุดที่พบเป็นไม่ใช่ IPD ให้ล้าง AN ทิ้งด้วย
   const setEfLocation = (v: string) =>
     setState((s) => ({ editForm: { ...s.editForm, location: v, ...(v !== IPD_LOCATION ? { an: "" } : {}) } }));
@@ -1371,14 +1415,10 @@ export default function MedDrpApp() {
     const snap: Incident = { ...det };
     delete snap.history;
     snap.saved_at = new Date().toISOString();
-    const dArr = String(ef.drug || "")
-      .split(/\s*,\s*/)
-      .map((x) => x.trim())
-      .filter(Boolean);
-    // Phase 2: โหมดแก้ไขยังพิมพ์ชื่อยาเป็นข้อความ (Phase 3 จะรื้อให้เลือกจากคลัง) → จับคู่รหัสยาใหม่จากข้อความ
-    //          ที่ตรงเป๊ะกับคลัง (คงการผูก id ของยาที่ไม่เปลี่ยน · ที่แมตช์ไม่ได้ = null)
-    const editByLine = new Map<string, number>((stateRef.current.drugs || []).map((d) => [drugFlatLine(d), d.id]));
-    const dIds = dArr.map((t) => (editByLine.has(t) ? (editByLine.get(t) as number) : null));
+    // Phase 3: โหมดแก้ไขใช้ picker เลือกยาจากคลังแล้ว → เอา ข้อความ+รหัสยา (drug_ids) ที่ผูกไว้มาใช้ตรง ๆ (กรองช่องว่างพร้อมกัน)
+    const dPairs = (ef.drugs || []).map((x, i) => ({ text: String(x).trim(), id: (ef.drug_ids || [])[i] ?? null })).filter((p) => p.text);
+    const dArr = dPairs.map((p) => p.text);
+    const dIds = dPairs.map((p) => p.id);
     const updated: Incident = {
       ...(ef as Incident),
       drugs: dArr,
@@ -2606,16 +2646,26 @@ export default function MedDrpApp() {
     );
   }
 
-  function renderDrugRows() {
-    const rows = f.drugs || [""];
-    const sug = S.drugSug;
+  // ช่องเลือกยาแบบ autocomplete (ใช้ร่วมทั้งหน้ากรอกและโหมดแก้ไข · Phase 3) — cfg บอกว่าอ่าน/เขียน state ชุดไหน
+  function drugPickerUI(cfg: {
+    rows: string[];
+    sug: { i: number; term: string } | null;
+    onSug: (v: { i: number; term: string } | null) => void;
+    onBlur: (i: number) => void;
+    onChangeAt: (i: number, v: string) => void;
+    onPick: (i: number, d: Drug) => void;
+    onRemove: (i: number) => void;
+    onAdd: () => void;
+    placeholder?: string;
+  }) {
+    const rows = cfg.rows.length ? cfg.rows : [""];
+    const sug = cfg.sug;
     return (
       <div style={css("display:flex;flex-direction:column;gap:8px;")}>
         {rows.map((val, i) => {
           const active = !!(sug && sug.i === i && sug.term.trim() !== "");
           const term = active ? sug!.term.trim().toLowerCase() : "";
           const matches = active ? S.drugs.filter((d) => !d.hidden && drugSearchText(d).includes(term)).slice(0, 25) : [];
-          // ไฮไลต์คำค้นในข้อความ (ชื่อ generic / ชื่อการค้า)
           const hl = (text: string) => {
             if (!term) return text;
             const idx = text.toLowerCase().indexOf(term);
@@ -2634,21 +2684,21 @@ export default function MedDrpApp() {
                 <HInput
                   value={val}
                   onChange={(e) => {
-                    setDrugAt(i, e.target.value);
-                    setState({ drugSug: { i, term: e.target.value } });
+                    cfg.onChangeAt(i, e.target.value);
+                    cfg.onSug({ i, term: e.target.value });
                   }}
                   onFocus={() => {
-                    if (val && val.trim()) setState({ drugSug: { i, term: val } });
+                    if (val && val.trim()) cfg.onSug({ i, term: val });
                   }}
-                  onBlur={() => setTimeout(() => setState((s) => (s.drugSug && s.drugSug.i === i ? { drugSug: null } : {})), 180)}
-                  placeholder={type === "med" ? "พิมพ์ค้นหายา เช่น Amox…" : "พิมพ์ค้นหายา เช่น Warfarin…"}
+                  onBlur={() => setTimeout(() => cfg.onBlur(i), 180)}
+                  placeholder={cfg.placeholder || "พิมพ์ค้นหายา…"}
                   autoComplete="off"
                   base="flex:1;min-width:0;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:12px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
                   focus={INPUT_FOCUS}
                 />
                 {rows.length > 1 && (
                   <button
-                    onClick={() => removeDrug(i)}
+                    onClick={() => cfg.onRemove(i)}
                     style={css(
                       "flex:none;border:1.5px solid #E2E8F0;background:#fff;color:#B42318;width:44px;height:44px;border-radius:11px;font-size:20px;cursor:pointer;line-height:1;"
                     )}
@@ -2678,7 +2728,7 @@ export default function MedDrpApp() {
                           key={d.id}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            pickDrug(i, d);
+                            cfg.onPick(i, d);
                           }}
                           style={css("padding:11px 14px;border-bottom:1px solid #F0F2F0;cursor:pointer;")}
                         >
@@ -2706,7 +2756,7 @@ export default function MedDrpApp() {
           );
         })}
         <HButton
-          onClick={() => addDrug()}
+          onClick={() => cfg.onAdd()}
           base="align-self:flex-start;border:1.5px dashed #C6DED9;background:#F5FAF9;color:#0B655D;font-size:13.5px;font-weight:600;padding:9px 15px;border-radius:10px;cursor:pointer;"
           hover="border-color:#F5A623;color:#B45309"
         >
@@ -2714,6 +2764,19 @@ export default function MedDrpApp() {
         </HButton>
       </div>
     );
+  }
+  function renderDrugRows() {
+    return drugPickerUI({
+      rows: f.drugs || [""],
+      sug: S.drugSug,
+      onSug: (v) => setState({ drugSug: v }),
+      onBlur: (i) => setState((s) => (s.drugSug && s.drugSug.i === i ? { drugSug: null } : {})),
+      onChangeAt: setDrugAt,
+      onPick: pickDrug,
+      onRemove: removeDrug,
+      onAdd: addDrug,
+      placeholder: type === "med" ? "พิมพ์ค้นหายา เช่น Amox…" : "พิมพ์ค้นหายา เช่น Warfarin…",
+    });
   }
 
   // จุดที่พบ — ใช้ร่วมทั้ง Med และ DRP (วางก่อน HN · เลือก IPD แล้วจึงกรอก AN ได้)
@@ -4171,8 +4234,20 @@ export default function MedDrpApp() {
         )}
 
         <div>
-          <label style={editLabel}>ยาที่เกี่ยวข้อง</label>
-          <HInput value={(ef.drug as string) || ""} onChange={(e) => setEf("drug", e.target.value)} base={editInput} focus={INPUT_FOCUS} />
+          <label style={editLabel}>
+            ยาที่เกี่ยวข้อง <span style={css("color:#94A3B8;font-weight:400;")}>เลือกจากคลัง (ผูกรหัสยา) หรือพิมพ์เอง</span>
+          </label>
+          {drugPickerUI({
+            rows: ef.drugs || [""],
+            sug: S.efDrugSug,
+            onSug: (v) => setState({ efDrugSug: v }),
+            onBlur: (i) => setState((s) => (s.efDrugSug && s.efDrugSug.i === i ? { efDrugSug: null } : {})),
+            onChangeAt: setEfDrugAt,
+            onPick: pickEfDrug,
+            onRemove: removeEfDrug,
+            onAdd: addEfDrug,
+            placeholder: "พิมพ์ค้นหายาจากคลัง…",
+          })}
         </div>
         <div style={css("display:flex;gap:8px;")}>
           <button onClick={() => setEf("high_alert", !ef.high_alert)} style={css(chip(!!ef.high_alert))}>
