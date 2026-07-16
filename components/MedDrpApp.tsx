@@ -207,7 +207,8 @@ interface AppState {
   drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น
   // ---- หน้า "คลังยา" (จัดการ master data · v0.9.10.0) ----
   drugSearch: string; // คำค้นในหน้าคลังยา
-  drugFilter: string; // ตัวกรอง: "" = ทั้งหมด · "had" · form (tab/injection) · "pregDX"
+  drugFilters: string[]; // ตัวกรองแบบเลือกหลายอัน: "had" · "form:<value>" · "pregDX" (ว่าง = ทั้งหมด)
+  drugSort: { key: string; dir: "asc" | "desc" } | null; // การเรียงคอลัมน์ (null = generic asc)
   drugEdit: Partial<Drug> | null; // ยาที่กำลังเพิ่ม/แก้ในป๊อป (null = ปิด)
   drugEditNew: boolean; // true = เพิ่มใหม่ · false = แก้ของเดิม
   drugEditOrig: Partial<Drug> | null; // สแนปช็อตตอนเปิดป๊อป (ใช้เช็คว่าแก้ค้างไหมก่อนปิด)
@@ -325,7 +326,8 @@ export default function MedDrpApp() {
     drugs: [],
     drugSug: null,
     drugSearch: "",
-    drugFilter: "",
+    drugFilters: [],
+    drugSort: null,
     drugEdit: null,
     drugEditNew: false,
     drugEditOrig: null,
@@ -671,20 +673,47 @@ export default function MedDrpApp() {
     setState({ drugBusy: false });
     flash(hidden ? "ซ่อนยาแล้ว · ดูได้ที่ตั้งค่า" : "เอายากลับมาแสดงแล้ว ✓");
   };
+  // ตัวกรองเลือกหลายอัน (กดซ้ำ = ยกเลิก) + ล้างค่า + เรียงตามคอลัมน์ (กดหัวคอลัมน์ · กดซ้ำสลับ asc/desc)
+  const toggleDrugFilter = (key: string) =>
+    setState((s) => {
+      const cur = s.drugFilters || [];
+      return { drugFilters: cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key] };
+    });
+  const clearDrugFilters = () => setState({ drugFilters: [] });
+  const toggleDrugSort = (key: string) =>
+    setState((s) => {
+      const cur = s.drugSort;
+      if (cur && cur.key === key) return { drugSort: { key, dir: cur.dir === "asc" ? "desc" : "asc" } };
+      return { drugSort: { key, dir: "asc" } };
+    });
   // ตัวกรอง + ค้นหา (ใช้ทั้ง render และปุ่มส่งออก) — หน้าคลังยาโชว์เฉพาะยาที่ไม่ถูกซ่อน
-  const drugMatchesFilter = (d: Drug, filter: string): boolean => {
-    if (!filter) return true;
-    if (filter === "had") return !!d.had;
-    if (filter === "pregDX") return d.preg === "D" || d.preg === "X";
-    if (filter.startsWith("form:")) return (d.form || "") === filter.slice(5);
+  // ตัวกรองแบบหลายอัน: รูปแบบ (form:*) รวมกันแบบ OR · HAD / Preg D-X เป็นเงื่อนไข AND เพิ่ม
+  const drugMatchesFilters = (d: Drug, filters: string[]): boolean => {
+    if (!filters.length) return true;
+    const forms = filters.filter((f) => f.startsWith("form:")).map((f) => f.slice(5));
+    if (forms.length && !forms.includes(d.form || "")) return false;
+    if (filters.includes("had") && !d.had) return false;
+    if (filters.includes("pregDX") && !(d.preg === "D" || d.preg === "X")) return false;
     return true;
+  };
+  const sortDrugs = (arr: Drug[], sort: AppState["drugSort"]): Drug[] => {
+    const key = sort?.key || "generic";
+    const mul = sort?.dir === "desc" ? -1 : 1;
+    return arr.slice().sort((a, b) => {
+      const av = (a as unknown as Record<string, unknown>)[key];
+      const bv = (b as unknown as Record<string, unknown>)[key];
+      if (key === "id") return (((av as number) || 0) - ((bv as number) || 0)) * mul;
+      if (key === "had") return ((av ? 1 : 0) - (bv ? 1 : 0)) * mul;
+      return String(av ?? "").localeCompare(String(bv ?? ""), "th") * mul;
+    });
   };
   const getFilteredDrugs = (s: AppState): Drug[] => {
     const q = (s.drugSearch || "").trim().toLowerCase();
-    return (s.drugs || [])
+    const filtered = (s.drugs || [])
       .filter((d) => !d.hidden)
-      .filter((d) => drugMatchesFilter(d, s.drugFilter))
+      .filter((d) => drugMatchesFilters(d, s.drugFilters))
       .filter((d) => !q || drugSearchText(d).includes(q));
+    return sortDrugs(filtered, s.drugSort);
   };
   const exportDrugsCsv = () => {
     const list = getFilteredDrugs(stateRef.current);
@@ -859,6 +888,17 @@ export default function MedDrpApp() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, state.cfg.url, state.cfg.key, refreshDrugs]);
+
+  // ล็อกไม่ให้เพจด้านหลังเลื่อน ตอนเปิดป๊อปคลังยา (แก้ไข/ประวัติ) — กันสโครลเมาส์แล้วเพจหลังเลื่อน
+  useEffect(() => {
+    const open = !!(state.drugEdit || state.drugLog);
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [state.drugEdit, state.drugLog]);
 
   // re-animate KPIs เมื่อเข้า dashboard / เปลี่ยนตัวกรอง/ช่วงเวลา/ข้อมูล
   useEffect(() => {
@@ -4119,7 +4159,6 @@ export default function MedDrpApp() {
       .sort((a, b) => formCounts[b] - formCounts[a])
       .slice(0, 6);
     const filters: { key: string; label: string }[] = [
-      { key: "", label: "ทั้งหมด" },
       { key: "had", label: "HAD" },
       ...forms.map((fm) => ({ key: "form:" + fm, label: fm })),
       { key: "pregDX", label: "Preg D/X" },
@@ -4132,10 +4171,26 @@ export default function MedDrpApp() {
     const rowBtn = "border:1px solid #DCE7E5;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#0B655D;";
     const hideBtn = "border:1px solid #F0D8AE;background:#FEF7EC;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;cursor:pointer;color:#B45309;";
     const doseText = (d: Drug) => [d.strength, d.unit].filter(Boolean).join(" ") + (d.percent ? " " + d.percent + "%" : "");
+    const stickyTop = isMobile ? 94 : 58; // ตรึงแถบค้นหา/กรองใต้หัวเมนู
+    // คอลัมน์ตาราง (กดหัวเรียงได้) — ชื่อการค้าย้ายมาที่ 2 · เพิ่ม ID · "ธง"→"HAD"
+    const cols: { key: string; label: string; w: string; sortable: boolean }[] = [
+      { key: "id", label: "ID", w: "58px", sortable: true },
+      { key: "generic", label: "ชื่อยา (generic)", w: "auto", sortable: true },
+      { key: "brand", label: "ชื่อการค้า", w: "150px", sortable: true },
+      { key: "strength", label: "ความแรง", w: "104px", sortable: true },
+      { key: "form", label: "รูปแบบ", w: "90px", sortable: true },
+      { key: "route", label: "ทางให้", w: "78px", sortable: true },
+      { key: "had", label: "HAD", w: "66px", sortable: true },
+      { key: "preg", label: "Preg", w: "64px", sortable: true },
+      { key: "_actions", label: "", w: "212px", sortable: false },
+    ];
+    const sortArrow = (key: string) =>
+      S.drugSort?.key === key ? (S.drugSort.dir === "asc" ? " ▲" : " ▼") : <span style={css("opacity:.4;")}> ↕</span>;
 
     return (
-      <div style={css("max-width:1080px;margin:0 auto;padding:22px 16px 60px;")}>
+      <div style={css("max-width:1080px;margin:0 auto;padding:22px 16px 80px;")}>
         <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:16px;padding:18px 20px;")}>
+          {/* หัวข้อ + ปุ่ม (ไม่ตรึง) */}
           <div style={css("display:flex;align-items:flex-end;justify-content:space-between;flex-wrap:wrap;gap:10px;")}>
             <div>
               <div style={css("font-size:22px;font-weight:800;color:#0B655D;")}>💊 คลังยา</div>
@@ -4151,7 +4206,8 @@ export default function MedDrpApp() {
             </div>
           </div>
 
-          <div style={css("margin:16px 0 14px;display:flex;flex-direction:column;gap:10px;")}>
+          {/* แถบค้นหา + ตัวกรอง (ตรึงไว้ด้านบน) */}
+          <div style={css("position:sticky;top:" + stickyTop + "px;z-index:15;background:#fff;padding:14px 0 12px;margin:6px 0 4px;border-bottom:1px solid #EEF4F2;display:flex;flex-direction:column;gap:10px;")}>
             <HInput
               value={S.drugSearch}
               onChange={(e) => setState({ drugSearch: e.target.value })}
@@ -4159,12 +4215,17 @@ export default function MedDrpApp() {
               base="width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:14px;outline:none;"
               focus={INPUT_FOCUS}
             />
-            <div style={css("display:flex;gap:7px;flex-wrap:wrap;")}>
+            <div style={css("display:flex;gap:7px;flex-wrap:wrap;align-items:center;")}>
               {filters.map((fl) => (
-                <button key={fl.key} onClick={() => setState({ drugFilter: fl.key })} style={css(fchip(S.drugFilter === fl.key))}>
+                <button key={fl.key} onClick={() => toggleDrugFilter(fl.key)} style={css(fchip(S.drugFilters.includes(fl.key)))}>
                   {fl.label}
                 </button>
               ))}
+              {S.drugFilters.length > 0 && (
+                <button onClick={() => clearDrugFilters()} style={css("border:1px solid #F3C5C2;background:#fff;color:#B91C1C;border-radius:999px;padding:7px 13px;font-size:13px;font-weight:700;cursor:pointer;")}>
+                  ✕ ล้างตัวกรอง
+                </button>
+              )}
             </div>
           </div>
 
@@ -4173,13 +4234,14 @@ export default function MedDrpApp() {
               {list.map((d) => (
                 <div key={d.id} style={css("border:1px solid #DEEBE8;border-radius:13px;padding:12px 14px;")}>
                   <div style={css("display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:5px;")}>
+                    <span style={css("font-size:11px;font-weight:700;color:#94A3B8;")}>#{d.id}</span>
                     <span style={css("font-weight:800;color:#0F172A;font-size:15px;")}>{d.generic}</span>
                     {d.had && <span style={css(tag("#FDECEC", "#B42318"))}>HAD</span>}
                     {d.preg && <span style={css(tag("#EEF2FF", "#3730A3"))}>Preg {d.preg}</span>}
                   </div>
                   <div style={css("font-size:12.5px;color:#475569;line-height:1.6;")}>
+                    {d.brand ? d.brand + " · " : ""}
                     {[doseText(d), d.form, d.route].filter(Boolean).join(" · ")}
-                    {d.brand ? " · " + d.brand : ""}
                   </div>
                   <div style={css("display:flex;gap:8px;margin-top:10px;")}>
                     <button onClick={() => openEditDrug(d)} style={css(rowBtn)}>แก้ไข</button>
@@ -4192,12 +4254,27 @@ export default function MedDrpApp() {
             </div>
           ) : (
             <div style={css("overflow-x:auto;")}>
-              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:820px;")}>
+              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:980px;table-layout:fixed;")}>
+                <colgroup>
+                  {cols.map((c) => (
+                    <col key={c.key} style={c.w === "auto" ? undefined : { width: c.w }} />
+                  ))}
+                </colgroup>
                 <thead>
-                  <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
-                    {["ชื่อยา (generic)", "ความแรง", "รูปแบบ", "ทางให้", "ชื่อการค้า", "ธง", "Preg", ""].map((h, i) => (
-                      <th key={i} style={css("padding:10px 12px;font-weight:600;white-space:nowrap;")}>
-                        {h}
+                  <tr>
+                    {cols.map((c, i) => (
+                      <th
+                        key={c.key}
+                        onClick={c.sortable ? () => toggleDrugSort(c.key) : undefined}
+                        style={css(
+                          "padding:11px 12px;text-align:left;font-weight:700;color:#fff;background:#0B655D;white-space:nowrap;" +
+                            (c.sortable ? "cursor:pointer;" : "") +
+                            (i === 0 ? "border-radius:9px 0 0 9px;" : "") +
+                            (i === cols.length - 1 ? "border-radius:0 9px 9px 0;" : "")
+                        )}
+                      >
+                        {c.label}
+                        {c.sortable ? sortArrow(c.key) : null}
                       </th>
                     ))}
                   </tr>
@@ -4205,14 +4282,15 @@ export default function MedDrpApp() {
                 <tbody>
                   {list.map((d) => (
                     <HTr key={d.id} base="border-bottom:1px solid #F1F6F5;" hover="background:#F9FCFB">
+                      <td style={css("padding:11px 12px;color:#94A3B8;font-size:12px;")}>{d.id}</td>
                       <td style={css("padding:11px 12px;color:#0F172A;font-weight:700;")}>{d.generic}</td>
-                      <td style={css("padding:11px 12px;color:#334155;white-space:nowrap;")}>{doseText(d) || "—"}</td>
+                      <td style={css("padding:11px 12px;color:#334155;")}>{d.brand || "—"}</td>
+                      <td style={css("padding:11px 12px;color:#334155;")}>{doseText(d) || "—"}</td>
                       <td style={css("padding:11px 12px;color:#334155;")}>
                         {d.form || "—"}
                         {d.release ? " " + d.release : ""}
                       </td>
                       <td style={css("padding:11px 12px;color:#334155;")}>{d.route || "—"}</td>
-                      <td style={css("padding:11px 12px;color:#334155;")}>{d.brand || "—"}</td>
                       <td style={css("padding:11px 12px;")}>{d.had ? <span style={css(tag("#FDECEC", "#B42318"))}>HAD</span> : ""}</td>
                       <td style={css("padding:11px 12px;")}>{d.preg ? <span style={css(tag("#EEF2FF", "#3730A3"))}>{d.preg}</span> : "—"}</td>
                       <td style={css("padding:11px 12px;white-space:nowrap;")}>
@@ -4240,6 +4318,24 @@ export default function MedDrpApp() {
             ) : null}
           </div>
         </div>
+
+        {/* ปุ่มเลื่อนขึ้นบนสุด / ลงล่างสุด (ลอยมุมขวาล่าง) */}
+        <div style={css("position:fixed;right:18px;bottom:22px;z-index:40;display:flex;flex-direction:column;gap:8px;")}>
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            aria-label="ขึ้นบนสุด"
+            style={css("width:42px;height:42px;border-radius:999px;border:none;cursor:pointer;background:#0B655D;color:#fff;font-size:18px;box-shadow:0 8px 20px -6px rgba(11,101,93,.6);")}
+          >
+            ↑
+          </button>
+          <button
+            onClick={() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" })}
+            aria-label="ลงล่างสุด"
+            style={css("width:42px;height:42px;border-radius:999px;border:none;cursor:pointer;background:#0B655D;color:#fff;font-size:18px;box-shadow:0 8px 20px -6px rgba(11,101,93,.6);")}
+          >
+            ↓
+          </button>
+        </div>
       </div>
     );
   }
@@ -4249,6 +4345,33 @@ export default function MedDrpApp() {
     const fld = "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;";
     const lab = "font-size:12.5px;font-weight:700;color:#475569;display:block;margin-bottom:5px;";
     const tchip = (on: boolean) => chip(on) + "flex:1;text-align:center;";
+    // ตัวเลือก dropdown จากค่าที่มีอยู่จริงในคลัง (กันพิมพ์ไม่ตรงกัน) · ถ้าค่าปัจจุบันไม่อยู่ในลิสต์ ก็เติมเข้าไป
+    const distinct = (key: keyof Drug) => {
+      const set = new Set<string>();
+      (S.drugs || []).forEach((x) => {
+        const v = x[key];
+        if (v) set.add(String(v));
+      });
+      const cur = d[key];
+      if (cur && !set.has(String(cur))) set.add(String(cur));
+      return Array.from(set).sort((a, b) => a.localeCompare(b, "th"));
+    };
+    const unitOpts = distinct("unit");
+    const formOpts = distinct("form");
+    const routeOpts = distinct("route");
+    const dropdown = (label: string, key: keyof Drug, opts: string[]) => (
+      <div style={css("flex:1;")}>
+        <label style={css(lab)}>{label}</label>
+        <HSelect value={(d[key] as string) || ""} onChange={(e) => setDrugField(key, e.target.value)} base={fld} focus={INPUT_FOCUS}>
+          <option value="">— เลือก —</option>
+          {opts.map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </HSelect>
+      </div>
+    );
     return (
       <div
         onClick={(e) => e.stopPropagation()}
@@ -4268,24 +4391,15 @@ export default function MedDrpApp() {
                 <label style={css(lab)}>ความแรง</label>
                 <HInput value={d.strength || ""} onChange={(e) => setDrugField("strength", e.target.value)} placeholder="500" base={fld} focus={INPUT_FOCUS} />
               </div>
-              <div style={css("flex:1;")}>
-                <label style={css(lab)}>หน่วย</label>
-                <HInput value={d.unit || ""} onChange={(e) => setDrugField("unit", e.target.value)} placeholder="mg" base={fld} focus={INPUT_FOCUS} />
-              </div>
+              {dropdown("หน่วย", "unit", unitOpts)}
               <div style={css("flex:1;")}>
                 <label style={css(lab)}>เข้มข้น (%)</label>
                 <HInput value={d.percent || ""} onChange={(e) => setDrugField("percent", e.target.value)} base={fld} focus={INPUT_FOCUS} />
               </div>
             </div>
             <div style={css("display:flex;gap:10px;")}>
-              <div style={css("flex:1;")}>
-                <label style={css(lab)}>รูปแบบ</label>
-                <HInput value={d.form || ""} onChange={(e) => setDrugField("form", e.target.value)} placeholder="tab, amp" base={fld} focus={INPUT_FOCUS} />
-              </div>
-              <div style={css("flex:1;")}>
-                <label style={css(lab)}>ทางให้ยา</label>
-                <HInput value={d.route || ""} onChange={(e) => setDrugField("route", e.target.value)} placeholder="oral, IV" base={fld} focus={INPUT_FOCUS} />
-              </div>
+              {dropdown("รูปแบบ", "form", formOpts)}
+              {dropdown("ทางให้ยา", "route", routeOpts)}
               <div style={css("flex:1;")}>
                 <label style={css(lab)}>ปลดปล่อย</label>
                 <HInput value={d.release || ""} onChange={(e) => setDrugField("release", e.target.value)} placeholder="ER, SR" base={fld} focus={INPUT_FOCUS} />
