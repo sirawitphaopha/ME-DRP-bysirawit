@@ -31,7 +31,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.9.1) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.10.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -114,6 +114,13 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
   - **กราฟรายเดือน 6 → 12 เดือน + ปุ่มเลือกปี:** state `dashYear` (ค.ศ. · 0=ปีปัจจุบัน) · กราฟโชว์ ม.ค.–ธ.ค. ของปีที่เลือก · `yearOpts` = ปีที่มีข้อมูล + ปีปัจจุบัน (จาก `monthScopeRecs`) เรียงใหม่→เก่า · ปุ่มปี พ.ศ. มุมขวาบนการ์ด · หัวข้อ "จำนวนเคสรายเดือน · ปี 2569" · แท่งแคบลง (76%) gap ชิด (มือถือ font/gap เล็กลง)
   - **หน้ารายงานเพิ่มคอลัมน์ "รายละเอียด":** `recRows.detailText` = `detail`(ME)/`cause`(DRP) · เดสก์ท็อป = คอลัมน์ใหม่ (max-width 260px · `-webkit-line-clamp:2` + `title` tooltip · ขยาย `min-width` ตาราง 860→1040) · มือถือ = บรรทัดล่างสุดของการ์ด (เส้นประคั่น)
   - **แก้ scroll หน้าผล "ส่งสำเร็จ":** ปุ่ม "ส่งรายงานใหม่" เรียก `window.scrollTo(0,0)` เอง — เดิม view คงเป็น `form` อยู่แล้ว effect scrollTo (key ที่ `view`) ไม่ทำงาน → ค้างล่างเพจ
+- **หน้า "คลังยา" — จัดการ master data (v0.9.10.0 · Phase 1 ของแผนคลังยา):** view ใหม่ `"drugs"` + เมนู "คลังยา" (เดสก์ท็อป+มือถือ) · `renderDrugsAdmin` (ตาราง desktop / การ์ด mobile)
+  - **CRUD:** `insertDrug`/`updateDrug` ใน `lib/data.ts` (เขียนเข้า Supabase ตรง · realtime กระจายให้ทุกเครื่อง) · ป๊อป `renderDrugEditModal` ใช้ร่วมเพิ่ม/แก้ · state `drugEdit`/`drugEditNew`/`drugEditOrig`/`drugBusy` · ค้น (`drugSearchText`) + กรอง (HAD/รูปแบบ form/Preg D-X · `getFilteredDrugs`) + ปุ่มส่งออก CSV (`exportDrugsCsv` · กัน formula injection)
+  - **id auto:** `drugs.id` เป็น identity (migration `0009` · BY DEFAULT · setval เหนือ max) → เพิ่มยาใหม่ระบบออกเลขเอง ไม่ต้องกรอก · id ไม่เปลี่ยนแม้แก้แถว = ยาเดิมเสมอ (เตรียมให้ Phase 2 ผูก ID)
+  - **ลบไม่ได้จากเว็บ → "ซ่อน" แทน:** ถอน RLS delete ของ anon (migration `0010`) · คอลัมน์ `hidden boolean` (migration `0011`) · `setDrugHidden(d, hidden)` ผ่าน `updateDrug` · หน้าคลังยากรอง `!d.hidden` + autocomplete ตอนกรอกกรอง `!d.hidden` · หน้าตั้งค่ามีส่วน "ยาที่ซ่อนอยู่" (กด "เอากลับมาแสดง"/"ประวัติ") · ลบจริงทำได้เฉพาะใน Supabase (พี่กันคนเดียว)
+  - **Audit log:** ตาราง `drug_audit` + trigger `log_drug_change` (SECURITY DEFINER · migration `0010`) จับทุก insert/update/delete ของ drugs → เก็บ old/new (jsonb)+เวลา · **จับได้แม้แก้ตรงใน Supabase** · ปุ่ม "ประวัติ" → `fetchDrugAudit` → `renderDrugLogModal` (ไทม์ไลน์ + diff ราย field เช่น "ชื่อยา: เก่า→ใหม่", "การแสดงผล: แสดง→ซ่อน")
+  - **ป๊อปแก้ไขกันปิดพลาด:** กดที่ว่างไม่ปิด + แก้ค้างแล้วกดยกเลิก = ป๊อปยืนยัน "ปิดโดยไม่บันทึก" (`drugEditOrig` เทียบ dirty · `requestCloseDrugEdit`/`forceCloseDrugEdit`)
+  - migrations Phase 1: `0009_drugs_writable` · `0010_drug_audit` · `0011_drugs_hidden` — **applied ขึ้น Supabase แล้ว** (0011 พี่กันรันเองผ่าน SQL Editor · ยืนยันครบ: hidden=1, id identity=YES, policy=INSERT/SELECT/UPDATE, drug_audit=มี, trigger=1, ยา 417)
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)
