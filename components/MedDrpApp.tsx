@@ -49,6 +49,7 @@ import {
   hardDeleteIncident,
   isConfigured,
   subscribeIncidents,
+  subscribeDrugs,
 } from "@/lib/data";
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
@@ -169,6 +170,7 @@ interface AppState {
   records: Incident[];
   search: string;
   dashType: "all" | "med" | "drp";
+  dashYear: number; // ปี ค.ศ. ที่เลือกดูในกราฟรายเดือน (0 = ปีปัจจุบัน)
   cfg: SupabaseCfg;
   toast: string;
   saving: boolean;
@@ -277,6 +279,7 @@ export default function MedDrpApp() {
     records: [],
     search: "",
     dashType: "all",
+    dashYear: 0,
     cfg: { url: "", key: "" },
     toast: "",
     saving: false,
@@ -553,6 +556,22 @@ export default function MedDrpApp() {
     } catch {}
   }, [setState]);
 
+  // ดึงคลังยาใหม่ทั้งชุด → อัปเดต state + cache ในเครื่อง (เฉพาะตอนข้อมูลต่างจริง กัน re-render เปล่า)
+  // ใช้ตอน mount + ตอน realtime แจ้งว่ามีคนแก้คลังยา + ตอนสลับกลับมาที่แอป/เน็ตกลับมา
+  const refreshDrugs = useCallback(async () => {
+    const cfg = stateRef.current.cfg;
+    if (!isConfigured(cfg)) return;
+    try {
+      const list = await fetchDrugs(cfg);
+      if (!list.length) return; // ดึงพลาด/ว่าง → คงคลังยาเดิมไว้ (ไม่ล้างทิ้ง)
+      if (JSON.stringify(list) === JSON.stringify(stateRef.current.drugs || [])) return;
+      setState({ drugs: list });
+      try {
+        localStorage.setItem("meddrp_drugs", JSON.stringify({ list, ts: Date.now() }));
+      } catch {}
+    } catch {}
+  }, [setState]);
+
   // ---------- mount ----------
   useEffect(() => {
     let cfg = envConfig();
@@ -680,6 +699,33 @@ export default function MedDrpApp() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, state.cfg.url, state.cfg.key, refreshRecords, flushPending, loadTrash]);
+
+  // ---------- Realtime คลังยา: มีคนเพิ่ม/แก้ยาในระบบ → ทุกเครื่องเห็นเองไม่ต้องรีเฟรช ----------
+  useEffect(() => {
+    if (!mounted) return;
+    const cfg = state.cfg;
+    if (!isConfigured(cfg)) return;
+    let deb: ReturnType<typeof setTimeout> | null = null;
+    const schedule = () => {
+      if (deb) clearTimeout(deb);
+      deb = setTimeout(() => refreshDrugs(), 500);
+    };
+    const unsub = subscribeDrugs(cfg, schedule);
+    // กันสัญญาณหลุด — กลับมาที่แท็บ / เน็ตกลับมา = ดึงคลังยาใหม่ด้วย
+    const onVis = () => {
+      if (document.visibilityState === "visible") refreshDrugs();
+    };
+    const onOnline = () => refreshDrugs();
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("online", onOnline);
+    return () => {
+      if (deb) clearTimeout(deb);
+      unsub();
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("online", onOnline);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, state.cfg.url, state.cfg.key, refreshDrugs]);
 
   // re-animate KPIs เมื่อเข้า dashboard / เปลี่ยนตัวกรอง/ช่วงเวลา/ข้อมูล
   useEffect(() => {
@@ -1209,21 +1255,27 @@ export default function MedDrpApp() {
     { label: "DRP", value: Math.round(anim[3]), sub: "แพทย์รับข้อเสนอ " + acceptRate + "%", idx: 3 },
   ];
 
-  const months: { key: string; label: string }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push({ key: d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"), label: THMON[d.getMonth()] });
-  }
-  // #10: กราฟ "6 เดือนล่าสุด" ต้องโชว์ 6 เดือนจริงเสมอ — ใช้ข้อมูลกรองแค่ประเภท (med/drp) ไม่เอาช่วงวันของ dashRange มาบีบ
-  //      เดิมใช้ recs (ผ่านตัวกรองช่วงวันแล้ว) → เลือกพรีเซ็ต "เดือนนี้/7 วัน" ทำให้กราฟ 6 เดือนหด เหลือแท่งเดียว
+  // #10: กราฟรายเดือนใช้ข้อมูลกรองแค่ประเภท (med/drp) ไม่เอาช่วงวันของ dashRange มาบีบ (กราฟจะได้ไม่หดตามพรีเซ็ต)
   const monthScopeRecs = (S.records || []).filter((r) => S.dashType === "all" || r.type === S.dashType);
+  // กราฟ 12 เดือน (ม.ค.–ธ.ค.) ของปีที่เลือก + ปุ่มเลือกปี (พ.ศ.) — รวมปีที่มีข้อมูล + ปีปัจจุบัน เรียงใหม่→เก่า
+  const selYear = S.dashYear || now.getFullYear();
+  const yearSet = new Set<number>([now.getFullYear()]);
+  monthScopeRecs.forEach((r) => {
+    const y = parseInt((r.occurred_at || "").slice(0, 4), 10);
+    if (!isNaN(y)) yearSet.add(y);
+  });
+  const yearOpts = Array.from(yearSet).sort((a, b) => b - a);
+  const months: { key: string; label: string }[] = [];
+  for (let mo = 0; mo < 12; mo++) {
+    months.push({ key: selYear + "-" + String(mo + 1).padStart(2, "0"), label: THMON[mo] });
+  }
   const mc = months.map((m) => monthScopeRecs.filter((r) => (r.occurred_at || "").slice(0, 7) === m.key).length);
   const mmax = Math.max(1, ...mc);
   const monthBars = months.map((m, i) => ({
     label: m.label,
     count: mc[i],
     barStyle:
-      "width:62%;border-radius:6px 6px 0 0;background:linear-gradient(#12A093,#0B655D);transition:height .6s cubic-bezier(.22,1,.36,1),filter .15s;cursor:pointer;height:" +
+      "width:76%;border-radius:5px 5px 0 0;background:linear-gradient(#12A093,#0B655D);transition:height .6s cubic-bezier(.22,1,.36,1),filter .15s;cursor:pointer;height:" +
       Math.max(4, Math.round((mc[i] / mmax) * 118)) +
       "px;",
   }));
@@ -1480,6 +1532,8 @@ export default function MedDrpApp() {
     severity: r.severity || "—",
     drug: (r.drug || "—") + (r.high_alert ? " ⚠" : "") + (r.lasa ? " 🔁" : ""),
     reporter: r.reporter || "—",
+    // รายละเอียดเหตุการณ์ที่พิมพ์ไว้ — Med ใช้ detail · DRP ใช้ cause (ช่อง "รายละเอียดเหตุการณ์/สาเหตุ")
+    detailText: (r.type === "med" ? r.detail : r.cause) || "",
     edited: !!r.edited,
   }));
 
@@ -1935,7 +1989,11 @@ export default function MedDrpApp() {
             <div style={css("font-size:14px;color:#5B7A73;margin-top:8px;line-height:1.55;")}>บันทึกและส่งขึ้นระบบส่วนกลางเรียบร้อย</div>
             <div style={css("width:100%;max-width:340px;margin-top:30px;display:flex;flex-direction:column;gap:11px;")}>
               <HButton
-                onClick={() => setState({ result: null, resultRec: null })}
+                onClick={() => {
+                  // กลับหน้ากรอกใหม่ (view คงเป็น form อยู่แล้ว → effect scrollTo ไม่ทำงาน) จึงเด้งขึ้นบนสุดเอง
+                  setState({ result: null, resultRec: null });
+                  if (typeof window !== "undefined") window.scrollTo(0, 0);
+                }}
                 base="border:none;border-radius:13px;font-size:16px;font-weight:700;padding:15px;cursor:pointer;background:#0F8A80;color:#fff;box-shadow:0 10px 22px -8px rgba(15,138,128,.6);"
                 hover="background:#0B655D"
               >
@@ -2925,13 +2983,33 @@ export default function MedDrpApp() {
         {/* month + severity */}
         <div style={css("display:grid;grid-template-columns:" + (isMobile ? "1fr" : "1.3fr 1fr") + ";gap:14px;margin-bottom:16px;")}>
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;")}>
-            <div style={css("font-size:15px;font-weight:700;color:#0B655D;margin-bottom:16px;")}>จำนวนเคสรายเดือน (6 เดือน)</div>
-            <div style={css("display:flex;align-items:flex-end;gap:12px;height:150px;padding-top:6px;")}>
+            <div style={css("display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;")}>
+              <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>จำนวนเคสรายเดือน · ปี {selYear + 543}</div>
+              {/* ปุ่มเลือกปี (พ.ศ.) — โชว์เฉพาะปีที่มีข้อมูล + ปีปัจจุบัน */}
+              <div style={css("display:flex;gap:6px;flex-wrap:wrap;")}>
+                {yearOpts.map((y) => {
+                  const on = y === selYear;
+                  return (
+                    <button
+                      key={y}
+                      onClick={() => setState({ dashYear: y })}
+                      style={css(
+                        "border:none;cursor:pointer;font-size:12.5px;font-weight:700;padding:5px 11px;border-radius:8px;" +
+                          (on ? "background:#0B655D;color:#fff;" : "background:#EAF4F1;color:#0B655D;")
+                      )}
+                    >
+                      {y + 543}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div style={css("display:flex;align-items:flex-end;gap:" + (isMobile ? "3px" : "6px") + ";height:150px;padding-top:6px;")}>
               {monthBars.map((b, i) => (
-                <div key={i} style={css("flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:6px;")}>
-                  <div style={css("font-size:12px;font-weight:700;color:#0B655D;")}>{b.count}</div>
+                <div key={i} style={css("flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:5px;")}>
+                  <div style={css("font-size:" + (isMobile ? "9.5px" : "11px") + ";font-weight:700;color:#0B655D;")}>{b.count}</div>
                   <HDiv base={b.barStyle} hover="filter:brightness(1.14)" />
-                  <div style={css("font-size:11px;color:#64748B;")}>{b.label}</div>
+                  <div style={css("font-size:" + (isMobile ? "8.5px" : "10px") + ";color:#64748B;")}>{b.label}</div>
                 </div>
               ))}
             </div>
@@ -3313,6 +3391,11 @@ export default function MedDrpApp() {
                   <div>
                     <span style={css("color:#94A3B8;")}>ผู้รายงาน</span> {r.reporter}
                   </div>
+                  {r.detailText ? (
+                    <div style={css("margin-top:5px;padding-top:6px;border-top:1px dashed #E3EFEC;color:#475569;")}>
+                      <span style={css("color:#94A3B8;")}>รายละเอียด</span> {r.detailText}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ))}
@@ -3325,10 +3408,10 @@ export default function MedDrpApp() {
         ) : (
           <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:8px 8px 12px;")}>
             <div style={css("overflow-x:auto;")}>
-              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:860px;")}>
+              <table style={css("width:100%;border-collapse:collapse;font-size:13px;min-width:1040px;")}>
                 <thead>
                   <tr style={css("text-align:left;color:#64748B;border-bottom:1.5px solid #EAF3F1;")}>
-                    {["วันที่", "ประเภท", "HN", "จุดที่พบ", "หมวด", "ระดับ", "ยา", "ผู้รายงาน", ""].map((h, i) => (
+                    {["วันที่", "ประเภท", "HN", "จุดที่พบ", "หมวด", "ระดับ", "ยา", "รายละเอียด", "ผู้รายงาน", ""].map((h, i) => (
                       <th key={i} style={css("padding:10px 12px;font-weight:600;")}>
                         {h}
                       </th>
@@ -3359,6 +3442,20 @@ export default function MedDrpApp() {
                       <td style={css("padding:10px 12px;color:#334155;")}>{r.cat}</td>
                       <td style={css("padding:10px 12px;color:#B45309;font-weight:600;")}>{r.severity}</td>
                       <td style={css("padding:10px 12px;color:#334155;")}>{r.drug}</td>
+                      <td style={css("padding:10px 12px;color:#475569;max-width:260px;")}>
+                        {r.detailText ? (
+                          <div
+                            title={r.detailText}
+                            style={css(
+                              "display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45;"
+                            )}
+                          >
+                            {r.detailText}
+                          </div>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
                       <td style={css("padding:10px 12px;color:#475569;")}>{r.reporter}</td>
                       <td style={css("padding:10px 12px;color:#0F8A80;font-weight:600;white-space:nowrap;")}>ดู →</td>
                     </HTr>

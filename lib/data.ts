@@ -237,3 +237,20 @@ export async function fetchDrugs(cfg: SupabaseCfg): Promise<Drug[]> {
   if (error) throw error;
   return (data || []) as Drug[];
 }
+
+// ---------- Realtime คลังยา ----------
+// เปิดสายรับสัญญาณตาราง drugs · 1 ช่องต่อ 1 ตาราง (drugs-live) แยกจากช่องของ incidents
+// พอมีเครื่องไหน (หรือแอดมิน) insert/update/delete ยา → เรียก onChange() ให้แอปดึงคลังยาใหม่
+// (ดึงใหม่ทั้งชุดผ่าน API เชื่อถือได้กว่าแปะค่าจาก payload) · คืนค่า = ฟังก์ชันปิดสาย
+export function subscribeDrugs(cfg: SupabaseCfg, onChange: () => void): () => void {
+  const c = getClient(cfg);
+  const ch = c
+    .channel("drugs-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "drugs" }, () => onChange())
+    .subscribe();
+  return () => {
+    try {
+      c.removeChannel(ch);
+    } catch {}
+  };
+}
