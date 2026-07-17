@@ -22,6 +22,8 @@ const COLS = [
   "error_type",
   "error_nature",
   "error_nature_other",
+  "source_units",
+  "source_unit_other",
   "severity",
   "management",
   "managed",
@@ -45,12 +47,15 @@ export function toRow(o: Incident): Record<string, unknown> {
     const v = (o as unknown as Record<string, unknown>)[c];
     if (v !== undefined) r[c] = v;
   }
-  // error_nature / error_type ต้องเป็น array เสมอ (คอลัมน์ jsonb)
+  // error_nature / error_type / source_units ต้องเป็น array เสมอ (คอลัมน์ jsonb)
   if (r.error_nature !== undefined && !Array.isArray(r.error_nature)) {
     r.error_nature = r.error_nature ? [r.error_nature] : [];
   }
   if (r.error_type !== undefined && !Array.isArray(r.error_type)) {
     r.error_type = r.error_type ? [r.error_type] : [];
+  }
+  if (r.source_units !== undefined && !Array.isArray(r.source_units)) {
+    r.source_units = r.source_units ? [r.source_units] : [];
   }
   // severity/outcome มี CHECK constraint (severity ∈ A–I, outcome ∈ Accepted/Rejected/Pending)
   // ฟอร์มส่ง "" มาเมื่อไม่ได้กรอก (Med Error ไม่มีช่อง outcome / DRP ไม่มีช่อง severity)

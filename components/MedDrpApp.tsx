@@ -7,6 +7,7 @@ import {
   DRP_TYPES,
   ERROR_NATURE,
   ERROR_TYPES,
+  SOURCE_UNITS,
   CONSULT_DOCTOR,
   INTERVENTIONS,
   LOCATIONS,
@@ -131,6 +132,7 @@ function matchSearch(r: Incident, q: string): boolean {
     r.management,
     natureText(r.error_type),
     natureText(r.error_nature, r.error_nature_other),
+    natureText(r.source_units, r.source_unit_other),
     drpLabel(r.drp_type),
     r.drp_type_other,
   ]
@@ -148,6 +150,10 @@ function validateIncident(f: Partial<FormState>, type: "med" | "drp"): Record<st
   if (f.location === IPD_LOCATION && !/\d/.test(String(f.an || ""))) errs.an = true; // IPD → ต้องมี AN (มีตัวเลขจริง ไม่ใช่ "-" เปล่า)
   if (!f.reporter) errs.reporter = true;
   if (!f.severity) errs.severity = true; // ระดับความรุนแรง A–I — บังคับทั้ง ME และ DRP
+  // หน่วยงานต้นเหตุ — บังคับเลือกอย่างน้อย 1 (ทั้ง ME/DRP) · เลือก "อื่น ๆ" ต้องระบุ
+  const suArr = Array.isArray(f.source_units) ? f.source_units : f.source_units ? [f.source_units] : [];
+  if (!suArr.length) errs.source_units = true;
+  if (suArr.includes("อื่น ๆ") && !String(f.source_unit_other || "").trim()) errs.source_unit_other = true;
   if (type === "med") {
     if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
     const natureArr = Array.isArray(f.error_nature) ? f.error_nature : f.error_nature ? [f.error_nature] : [];
@@ -1098,6 +1104,22 @@ export default function MedDrpApp() {
     });
     draftSoon();
   };
+  // หน่วยงานต้นเหตุ (เลือกหลายอัน · ใช้ทั้ง Med/DRP) — เลิกเลือก "อื่น ๆ" ล้างข้อความระบุ
+  const toggleSourceUnit = (k: string) => {
+    setState((s) => {
+      const cur = Array.isArray(s.form.source_units) ? s.form.source_units.slice() : [];
+      const i = cur.indexOf(k);
+      if (i >= 0) cur.splice(i, 1);
+      else cur.push(k);
+      const form = { ...s.form, source_units: cur } as FormState;
+      if (!cur.includes("อื่น ๆ")) form.source_unit_other = "";
+      const errors = { ...s.errors };
+      delete errors.source_units;
+      delete errors.source_unit_other;
+      return { form, errors };
+    });
+    draftSoon();
+  };
   const toggleErrType = (k: string) => {
     setState((s) => {
       const cur = Array.isArray(s.form.error_type) ? s.form.error_type.slice() : s.form.error_type ? [s.form.error_type] : [];
@@ -1390,16 +1412,19 @@ export default function MedDrpApp() {
     draftSoon();
   };
   // #2: หน้าแก้ไข error_type / error_nature เป็น "เลือกได้หลายอัน" (เดิมเป็น select อันเดียว → array หด เหลือค่าเดียว ข้อมูลหาย)
-  const efArr = (field: "error_type" | "error_nature"): string[] => {
+  const efArr = (field: "error_type" | "error_nature" | "source_units"): string[] => {
     const v = (stateRef.current.editForm || {})[field];
     return Array.isArray(v) ? (v as string[]) : v ? [String(v)] : [];
   };
-  const efToggleArr = (field: "error_type" | "error_nature", val: string) =>
+  const efToggleArr = (field: "error_type" | "error_nature" | "source_units", val: string) =>
     setState((s) => {
       const raw = s.editForm[field];
       const cur = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
       const next = cur.includes(val) ? cur.filter((x) => x !== val) : [...cur, val];
-      return { editForm: { ...s.editForm, [field]: next } };
+      const ef2 = { ...s.editForm, [field]: next };
+      // "อื่น ๆ" ของ source_units — เลิกเลือกล้างข้อความระบุ
+      if (field === "source_units" && !next.includes("อื่น ๆ")) ef2.source_unit_other = "";
+      return { editForm: ef2 };
     });
   const saveEdit = async () => {
     if (savingRef.current) return; // กันกดบันทึกซ้ำ
@@ -1461,6 +1486,8 @@ export default function MedDrpApp() {
       "error_type",
       "error_nature",
       "error_nature_other",
+      "source_units",
+      "source_unit_other",
       "severity",
       "drp_type",
       "drp_type_other",
@@ -1734,6 +1761,23 @@ export default function MedDrpApp() {
       Math.round(((byNat[k] || 0) / natMax) * 100) +
       "%;",
   }));
+  // แยกตามหน่วยงานต้นเหตุ — นับแบบ array (1 เคสเลือกได้หลายหน่วย · ทั้ง Med + DRP · respect ตัวกรอง dashType)
+  const byUnit: Record<string, number> = {};
+  recs.forEach((r) => {
+    const arr = Array.isArray(r.source_units) ? r.source_units : r.source_units ? [r.source_units] : [];
+    arr.forEach((u) => {
+      byUnit[u] = (byUnit[u] || 0) + 1;
+    });
+  });
+  const unitMax = Math.max(1, ...Object.values(byUnit), 1);
+  const unitBreak = SOURCE_UNITS.map((u) => ({
+    label: u,
+    count: byUnit[u] || 0,
+    barStyle:
+      "height:100%;border-radius:999px;background:linear-gradient(90deg,#12A093,#0B655D);transition:width .6s cubic-bezier(.22,1,.36,1);width:" +
+      Math.round(((byUnit[u] || 0) / unitMax) * 100) +
+      "%;",
+  }));
   // แยกตามผู้รายงาน — เรียงมากไปน้อย · สีสดคนละสีต่อแท่ง (ไม่ใช้เทลของธีม เพื่อให้แยกออกจากกราฟอื่น)
   const REPORTER_COLORS = [
     "linear-gradient(90deg,#F43F5E,#BE123C)", // ชมพูแดง
@@ -1852,6 +1896,7 @@ export default function MedDrpApp() {
     const flags = [dt2.high_alert ? "High-alert" : null, dt2.lasa ? "LASA" : null].filter(Boolean).join(", ") || "—";
     const tval = dt2.shift || shiftOf(dt2.occurred_time) || "—";
     const natureDisp = natureText(dt2.error_nature, dt2.error_nature_other);
+    const sourceDisp = natureText(dt2.source_units, dt2.source_unit_other); // หน่วยงานต้นเหตุ (reuse natureText · array + อื่น ๆ)
     const drugDisp = resolveDrugLines(dt2, drugsById).join(", ") || drugText(dt2); // Phase 2: โชว์ชื่อล่าสุดจากรหัสยา
     const drpDisp = dt2.drp_type === "อื่น ๆ" && dt2.drp_type_other ? "อื่น ๆ — " + dt2.drp_type_other : drpLabel(dt2.drp_type);
     const rows: [string, unknown][] = isMed2
@@ -1861,6 +1906,7 @@ export default function MedDrpApp() {
           ["HN ผู้ป่วย", dt2.hn],
           ["จุดที่พบ", dt2.location],
           ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
+          ["หน่วยงานต้นเหตุ", sourceDisp],
           ["ประเภท Error", natureText(dt2.error_type)],
           ["ลักษณะความคลาดเคลื่อน", natureDisp],
           ["ระดับความรุนแรง (NCC MERP)", dt2.severity],
@@ -1876,6 +1922,7 @@ export default function MedDrpApp() {
           ["HN ผู้ป่วย", dt2.hn],
           ["จุดที่พบ", dt2.location],
           ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
+          ["หน่วยงานต้นเหตุ", sourceDisp],
           ["ประเภทปัญหาจากการใช้ยา (DRP)", drpDisp],
           ["ระดับความรุนแรง (NCC MERP)", dt2.severity],
           ["ยาที่เกี่ยวข้อง", drugDisp],
@@ -2524,6 +2571,9 @@ export default function MedDrpApp() {
             {/* จุดที่พบ (มาก่อน HN — เลือก IPD แล้วจึงกรอก AN ได้) */}
             {renderLocationField()}
 
+            {/* หน่วยงานต้นเหตุ (ช่องร่วม Med/DRP) */}
+            {renderSourceUnitsField()}
+
             {/* HN + AN แถวเดียว · AN กดได้เมื่อจุดที่พบ = ห้องยา IPD */}
             <div style={css("margin-bottom:16px;")}>
               <div style={css("display:flex;gap:10px;")}>
@@ -2800,6 +2850,43 @@ export default function MedDrpApp() {
         </HSelect>
         {S.errors.location && (
           <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกจุดที่พบ</div>
+        )}
+      </div>
+    );
+  }
+
+  // หน่วยงาน/วิชาชีพต้นเหตุ — ช่องร่วม Med/DRP (ชิปเลือกหลายอัน + "อื่น ๆ" พิมพ์ระบุ · บังคับกรอก)
+  function renderSourceUnitsField() {
+    const sel = Array.isArray(f.source_units) ? f.source_units : [];
+    const showOther = sel.includes("อื่น ๆ");
+    return (
+      <div style={css("margin-bottom:16px;")}>
+        <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
+          หน่วยงานต้นเหตุ <span style={css("color:#94A3B8;font-weight:400;")}>เกิดจากใคร/หน่วยไหน · เลือกได้หลายอัน</span> <span style={css("color:#DC2626;")}>*</span>
+        </label>
+        <div style={css("display:flex;flex-wrap:wrap;gap:8px;")}>
+          {SOURCE_UNITS.map((u) => (
+            <button key={u} onClick={() => toggleSourceUnit(u)} style={css(chip(sel.includes(u)))}>
+              {u}
+            </button>
+          ))}
+        </div>
+        {showOther && (
+          <>
+            <HInput
+              value={f.source_unit_other}
+              onChange={(e) => setField("source_unit_other", e.target.value)}
+              placeholder="ระบุหน่วยงาน/วิชาชีพเพิ่มเติม…"
+              base="width:100%;box-sizing:border-box;margin-top:8px;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 14px;font-size:15px;color:#0F172A;background:#fff;outline:none;"
+              focus={INPUT_FOCUS}
+            />
+            {S.errors.source_unit_other && (
+              <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาระบุหน่วยงานต้นเหตุ</div>
+            )}
+          </>
+        )}
+        {S.errors.source_units && (
+          <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกหน่วยงานต้นเหตุ</div>
         )}
       </div>
     );
@@ -3412,6 +3499,19 @@ export default function MedDrpApp() {
               reporterBreak.map((t) => ({ label: t.label, count: t.count, barStyle: t.barStyle })),
               10
             )
+          ) : (
+            <div style={css("padding:14px;text-align:center;color:#94A3B8;font-size:13.5px;")}>ยังไม่มีข้อมูลในช่วงเวลาที่เลือก</div>
+          )}
+        </div>
+
+        {/* แยกตามหน่วยงานต้นเหตุ — นับทั้ง Med + DRP (1 เคสเลือกได้หลายหน่วย) */}
+        <div style={css("background:#fff;border:1px solid #DEEBE8;border-radius:15px;padding:18px 20px;margin-bottom:16px;")}>
+          <div style={css("display:flex;align-items:baseline;gap:8px;margin-bottom:14px;")}>
+            <div style={css("font-size:15px;font-weight:700;color:#0B655D;")}>แยกตามหน่วยงานต้นเหตุ</div>
+            <div style={css("font-size:12.5px;color:#94A3B8;")}>Med + DRP · 1 เคสนับได้หลายหน่วย</div>
+          </div>
+          {unitBreak.some((t) => t.count > 0) ? (
+            renderBarList(unitBreak.map((t) => ({ label: t.label, count: t.count, barStyle: t.barStyle })))
           ) : (
             <div style={css("padding:14px;text-align:center;color:#94A3B8;font-size:13.5px;")}>ยังไม่มีข้อมูลในช่วงเวลาที่เลือก</div>
           )}
@@ -4033,6 +4133,34 @@ export default function MedDrpApp() {
     );
   }
 
+  // หน่วยงานต้นเหตุ ในโหมดแก้ไข — ชิปเลือกหลายอัน + "อื่น ๆ" พิมพ์ระบุ (ใช้ efArr/efToggleArr · ร่วม Med/DRP)
+  function renderEfSourceUnits() {
+    const sel = efArr("source_units");
+    return (
+      <div>
+        <label style={editLabel}>
+          หน่วยงานต้นเหตุ <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
+        </label>
+        <div style={css("display:flex;flex-wrap:wrap;gap:7px;")}>
+          {SOURCE_UNITS.map((u) => (
+            <button key={u} type="button" onClick={() => efToggleArr("source_units", u)} style={css(chip(sel.includes(u)))}>
+              {u}
+            </button>
+          ))}
+        </div>
+        {sel.includes("อื่น ๆ") && (
+          <HInput
+            value={(ef.source_unit_other as string) || ""}
+            onChange={(e) => setEf("source_unit_other", e.target.value)}
+            placeholder="ระบุหน่วยงาน/วิชาชีพเพิ่มเติม…"
+            base={editInput + "margin-top:8px;"}
+            focus={INPUT_FOCUS}
+          />
+        )}
+      </div>
+    );
+  }
+
   function renderEditMode() {
     const isEditMed = ef.type === "med";
     return (
@@ -4081,6 +4209,7 @@ export default function MedDrpApp() {
                 <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} onBlur={() => setEf("an", formatAn((ef.an as string) || "", ef.occurred_at))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
               </div>
             )}
+            {renderEfSourceUnits()}
             <div>
               <label style={editLabel}>
                 ประเภท Error <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
@@ -4136,6 +4265,7 @@ export default function MedDrpApp() {
                 <HInput value={(ef.an as string) || ""} onChange={(e) => setEf("an", e.target.value.replace(/[^0-9-]/g, ""))} onBlur={() => setEf("an", formatAn((ef.an as string) || "", ef.occurred_at))} placeholder="เช่น 69-01234" base={editInput} focus={INPUT_FOCUS} />
               </div>
             )}
+            {renderEfSourceUnits()}
             <div>
               <label style={editLabel}>ประเภทปัญหาจากการใช้ยา (DRP)</label>
               <select value={ef.drp_type || ""} onChange={(e) => setEf("drp_type", e.target.value)} style={css(editInputSelect)}>

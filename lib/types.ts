@@ -24,6 +24,8 @@ export interface Incident {
   error_type?: string[] | string; // array (เลือกหลายอันได้) หรือ string (ข้อมูลเก่า)
   error_nature?: string[] | string; // array (ใหม่) หรือ string (ข้อมูลเก่า)
   error_nature_other?: string;
+  source_units?: string[] | string; // หน่วยงาน/วิชาชีพต้นเหตุ (array · เลือกหลายอัน · ทั้ง Med/DRP)
+  source_unit_other?: string; // ข้อความเมื่อเลือก "อื่น ๆ"
   severity?: string;
   management?: string;
   managed?: boolean; // ติ๊ก "แก้ไขเรียบร้อยแล้ว" (ไม่ต้องพิมพ์บรรยายก็ได้)
@@ -57,6 +59,8 @@ export interface FormState {
   error_type: string[];
   error_nature: string[];
   error_nature_other: string;
+  source_units: string[]; // หน่วยงานต้นเหตุ (เลือกหลายอัน)
+  source_unit_other: string;
   severity: string;
   drp_type: string;
   drp_type_other: string;

@@ -85,6 +85,8 @@ export function emptyForm(defaultReporter: string, keep?: Partial<Pick<FormState
     error_type: [],
     error_nature: [],
     error_nature_other: "",
+    source_units: [],
+    source_unit_other: "",
     severity: "",
     drp_type: "",
     drp_type_other: "",

@@ -1,6 +1,6 @@
 // ค่าคงที่ทั้งหมด — พอร์ตตรงจากดีไซน์ DC (Med Error DRP.dc.html)
 
-export const APP_VERSION = "0.9.10.3";
+export const APP_VERSION = "0.9.11.0";
 
 export interface KeyDesc {
   key: string;
@@ -105,6 +105,10 @@ export const ERROR_NATURE: KeyDesc[] = [
 ];
 
 export const SHIFTS = ["เวรเช้า", "เวรบ่าย", "เวรดึก"];
+
+// หน่วยงาน/วิชาชีพต้นเหตุของความคลาดเคลื่อน (เลือกได้หลายอัน · แยกจาก "ประเภท Error" ที่เป็นขั้นตอน)
+// เพราะวิชาชีพ ≠ ขั้นตอน 1:1 (พยาบาลบางทีคีย์คำสั่ง · IPD เภสัชเป็นคนคัดลอก)
+export const SOURCE_UNITS = ["แพทย์", "พยาบาล", "เภสัชกร", "ผู้ช่วยเภสัช", "ห้องแล็บ", "เวชระเบียน", "ผู้ป่วย / ญาติ", "อื่น ๆ"];
 
 export interface SevTier {
   label: string;
