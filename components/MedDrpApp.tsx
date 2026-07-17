@@ -935,16 +935,18 @@ export default function MedDrpApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, state.cfg.url, state.cfg.key, refreshDrugs]);
 
-  // ล็อกไม่ให้เพจด้านหลังเลื่อน ตอนเปิดป๊อปคลังยา (แก้ไข/ประวัติ) — กันสโครลเมาส์แล้วเพจหลังเลื่อน
+  // ล็อกไม่ให้เพจด้านหลังเลื่อน ตอนเปิด "ทุก popup" — กันสโครลเมาส์/นิ้วแล้วเพจหลังเลื่อน
+  // ครอบคลุม: รายละเอียด/แก้ไขเคส · หน้าผลการส่ง · ป๊อปลบถาวร · ป๊อปสลับ ME↔DRP · ป๊อปคลังยา (แก้ไข/ประวัติ)
+  // (ป๊อปที่ซ้อนอยู่ในตัวอื่น เช่น confirmDiscard/askDelete อยู่ใน detail · drugEditConfirmClose อยู่ใน drugEdit — ตัวแม่ล็อกให้แล้ว)
   useEffect(() => {
-    const open = !!(state.drugEdit || state.drugLog);
+    const open = !!(state.detail || state.result || state.hardTarget || state.confirmSwitch || state.drugEdit || state.drugLog);
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
-  }, [state.drugEdit, state.drugLog]);
+  }, [state.detail, state.result, state.hardTarget, state.confirmSwitch, state.drugEdit, state.drugLog]);
 
   // Phase 2: จับคู่รหัสยาให้เคสเก่าอัตโนมัติ (ครั้งเดียว · เมื่อทั้งรายงานและคลังยาโหลดครบ)
   useEffect(() => {

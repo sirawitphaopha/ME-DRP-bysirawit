@@ -31,7 +31,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.11.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.11.1) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -130,6 +130,9 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
   - handler `toggleSourceUnit(k)` (mirror `toggleNature` · เลิกเลือก "อื่น ๆ" ล้าง `source_unit_other`) · โหมดแก้ไขใช้ `efArr`/`efToggleArr("source_units")` (ขยาย type รับ field นี้) · แสดงผลใช้ `natureText(source_units, source_unit_other)` (reuse) — หน้ารายละเอียด/ค้นหา (`matchSearch` hay)/CSV (`exportCsv` cols)
   - **Dashboard กราฟใหม่ "แยกตามหน่วยงานต้นเหตุ"** (`byUnit`/`unitBreak`) — นับแบบ array (1 เคสนับได้หลายหน่วย · ทั้ง Med+DRP · respect ตัวกรอง) · แท่ง gradient teal · การ์ดใหม่ถัดจาก "แยกตามผู้รายงาน"
   - ⚠️ ต้องรัน `supabase/migrations/0013_source_units.sql` (เพิ่ม 2 คอลัมน์) — **applied ขึ้น Supabase แล้ว** (พี่กันรันเองผ่าน SQL Editor · MCP ติด approval) · เคสเก่าที่ไม่มีค่า = `[]` (default) · **เข้าไปแก้เคสเก่าจะโดนบังคับเลือกหน่วยงานต้นเหตุ** (validateIncident เดียวกัน)
+- **ล็อก scroll ทุก popup + ลักษณะ "ค้างยา" (v0.9.11.1):**
+  - **ล็อก scroll พื้นหลังตอนเปิด popup ทุกตัว** — effect เดิม (v0.9.10.1) ล็อกแค่ป๊อปคลังยา (`drugEdit`/`drugLog`) → ขยายให้ครอบคลุม `detail` (รายละเอียด/แก้ไขเคส) · `result` (หน้าผลการส่ง) · `hardTarget` (ป๊อปลบถาวร) · `confirmSwitch` (ป๊อปสลับ ME↔DRP) ด้วย · ป๊อปที่ซ้อนใน detail (`confirmDiscard`/`askDelete`) และใน drugEdit (`drugEditConfirmClose`) ตัวแม่ล็อกให้แล้ว · เหตุผล: ป๊อปแก้ไขเคสเดิมเลื่อนพื้นหลังได้ (ไม่เคยล็อก · มีแต่ป๊อปยาที่ล็อก) → ทำให้สม่ำเสมอ
+  - **เพิ่มลักษณะความคลาดเคลื่อน "ค้างยา"** ใน `ERROR_NATURE` (`lib/constants.ts` · ก่อน "อื่น ๆ") · desc = "มียาค้างจ่าย ผู้ป่วยยังไม่ได้รับยาครบตามสั่ง (เช่น ยาไม่พอ ต้องค้างจ่ายภายหลัง)" · ใช้ได้ทุกจุดอัตโนมัติ (ฟอร์ม/แก้ไข/legend ⓘ/Dashboard natureBreak/ค้นหา) เพราะทุกจุด iterate จาก `ERROR_NATURE`
 - ประวัติแก้ไขเก็บใน `history[]` (snapshot ก่อนแก้ พร้อม `saved_at`)
 - คีย์ localStorage: `meddrp_records_v4` (v4 = เดโม 10 เคส + ชื่อจริง · bump ล้าง cache เก่า), `meddrp_cfg`, `meddrp_draft`
 - **ผู้รายงาน (v0.9.2.1):** custom dropdown ทำเอง `renderReporterDD` (ไม่ใช้ `<select>` ของ OS — กัน iOS ตัดชื่อยาว 2 บรรทัด) เลือกจาก `REPORTERS` · ใช้ทั้งหน้ากรอก + โหมดแก้ไข · **เมนู absolute เด้งขึ้น/ลงอัตโนมัติ** (state `ddUp` · ตอนกดวัด `getBoundingClientRect` เทียบครึ่งจอ ช่องล่างจอ→เด้งขึ้น กันโดนตัดขอบล่าง) · ค่าเดิมนอกลิสต์ยังแสดง (guard)
