@@ -59,6 +59,26 @@ import {
 import { css } from "@/lib/style";
 import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
 import { DashRange, Drug, DrugAudit, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
+import { AppState } from "@/components/MedDrpApp.types";
+import { dedupUnsynced, formatAn, matchSearch, readList, validateIncident, writeList } from "@/lib/records";
+import {
+  INPUT_BASE,
+  INPUT_FOCUS,
+  SHIFT_TIME,
+  badgeDrp,
+  badgeMed,
+  chip,
+  editInput,
+  editInputSelect,
+  editLabel,
+  editTextarea,
+  filt,
+  nav,
+  navM,
+  pregColor,
+  seg,
+  shiftBtn,
+} from "@/lib/styles";
 
 const ORG_NAME = "ห้องยา รพ.ปรางค์กู่";
 const DEFAULT_REPORTER = "";
@@ -70,227 +90,6 @@ const DRAFT_KEY = "meddrp_draft";
 // คิวรายงานที่ยังส่งขึ้นระบบส่วนกลางไม่สำเร็จ (เก็บไว้ในเครื่องเพื่อลองส่งใหม่อัตโนมัติ · กันข้อมูลหาย)
 const PENDING_KEY = "meddrp_pending_v1";
 
-// อ่าน/เขียนลิสต์ Incident ใน localStorage อย่างปลอดภัย (คืน [] ถ้าอ่านไม่ได้)
-function readList(key: string): Incident[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(key) || "null");
-    return Array.isArray(v) ? (v as Incident[]) : [];
-  } catch {
-    return [];
-  }
-}
-function writeList(key: string, list: Incident[]): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(list));
-  } catch {}
-}
-
-// เคสที่ยังไม่ขึ้น server (แหล่งความจริง = คิว pending) + local ที่ id ยังไม่ใช่ uuid (เคสเก่า) · dedup ด้วย id · ตัดเคสที่อยู่บน server แล้ว
-function dedupUnsynced(pending: Incident[], local: Incident[], serverIds: Set<string>): Incident[] {
-  const seen = new Set<string>();
-  const out: Incident[] = [];
-  for (const r of [...pending, ...local.filter((x) => !isUuid(x.id))]) {
-    if (r && r.id && !serverIds.has(r.id) && !seen.has(r.id)) {
-      seen.add(r.id);
-      out.push(r);
-    }
-  }
-  return out;
-}
-
-// ตรวจช่องบังคับ — ใช้ร่วมทั้งหน้ากรอกใหม่ (save) และหน้าแก้ไข (saveEdit)
-// #15: จัดรูปแบบ AN → "YY-NNNNN" (YY = ปี พ.ศ. 2 หลักของปีที่เกิดเหตุ · NNNNN = เลขลำดับ 5 หลัก)
-// พิมพ์ "1234" → "69-01234" · พิมพ์ "1" → "69-00001" · พิมพ์เกิน 5 หลัก = ถือว่าใส่ปีมาเอง (เอา 5 ตัวท้ายเป็นลำดับ, ที่เหลือเป็นปี)
-function formatAn(raw: string, occurredAt?: string): string {
-  const digits = String(raw || "").replace(/\D/g, "");
-  if (!digits) return "";
-  let seq: string;
-  let yy: string;
-  if (digits.length > 5) {
-    seq = digits.slice(-5);
-    yy = digits.slice(0, digits.length - 5).slice(-2).padStart(2, "0");
-  } else {
-    seq = digits.padStart(5, "0");
-    const y = parseInt(String(occurredAt || "").slice(0, 4), 10);
-    const ce = isNaN(y) ? new Date().getFullYear() : y;
-    yy = String((ce + 543) % 100).padStart(2, "0"); // แปลง ค.ศ. → พ.ศ. แล้วเอา 2 หลักท้าย
-  }
-  return yy + "-" + seq;
-}
-
-// #17: ค้นหาจากเฉพาะช่องที่ผู้ใช้เห็น (ไม่ใช่ JSON.stringify ทั้งก้อน) — กันพิมพ์ "med"/"true"/"uuid" แล้วเจอทุกเคส
-function matchSearch(r: Incident, q: string): boolean {
-  if (!q) return true;
-  const hay = [
-    r.hn,
-    r.an,
-    r.reporter,
-    r.location,
-    drugText(r),
-    r.detail,
-    r.cause,
-    r.management,
-    natureText(r.error_type),
-    natureText(r.error_nature, r.error_nature_other),
-    natureText(r.source_units, r.source_unit_other),
-    drpLabel(r.drp_type),
-    r.drp_type_other,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  return hay.includes(q);
-}
-
-function validateIncident(f: Partial<FormState>, type: "med" | "drp"): Record<string, boolean> {
-  const errs: Record<string, boolean> = {};
-  if (!String(f.hn || "").trim()) errs.hn = true;
-  if (!f.occurred_at) errs.occurred_at = true;
-  if (!f.location) errs.location = true;
-  if (f.location === IPD_LOCATION && !/\d/.test(String(f.an || ""))) errs.an = true; // IPD → ต้องมี AN (มีตัวเลขจริง ไม่ใช่ "-" เปล่า)
-  if (!f.reporter) errs.reporter = true;
-  if (!f.severity) errs.severity = true; // ระดับความรุนแรง A–I — บังคับทั้ง ME และ DRP
-  // หน่วยงานต้นเหตุ — บังคับเลือกอย่างน้อย 1 (ทั้ง ME/DRP) · เลือก "อื่น ๆ" ต้องระบุ
-  const suArr = Array.isArray(f.source_units) ? f.source_units : f.source_units ? [f.source_units] : [];
-  if (!suArr.length) errs.source_units = true;
-  if (suArr.includes("อื่น ๆ") && !String(f.source_unit_other || "").trim()) errs.source_unit_other = true;
-  // ประเภท Error — บังคับเลือกอย่างน้อย 1 ทั้ง ME และ DRP (ขั้นตอนที่พลาด · ใช้ร่วมกัน)
-  if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
-  if (type === "med") {
-    const natureArr = Array.isArray(f.error_nature) ? f.error_nature : f.error_nature ? [f.error_nature] : [];
-    if (!natureArr.length) errs.error_nature = true;
-    // #14: เลือก "อื่น ๆ" ต้องระบุข้อความด้วย
-    if (natureArr.includes("อื่น ๆ") && !String(f.error_nature_other || "").trim()) errs.error_nature_other = true;
-    if (!String(f.detail || "").trim()) errs.detail = true;
-  } else {
-    if (!f.drp_type) errs.drp_type = true;
-    // #14: เลือกประเภท DRP "อื่น ๆ" ต้องระบุข้อความด้วย
-    if (f.drp_type === "อื่น ๆ" && !String(f.drp_type_other || "").trim()) errs.drp_type_other = true;
-    // บังคับผลตอบรับเฉพาะเคสที่เสนอแพทย์จริง (เลือก "ปรึกษาแพทย์ผู้สั่งใช้" และไม่ได้ติ๊กว่าเภสัชกรแก้เอง)
-    if (!f.pharmacist_only && f.intervention === CONSULT_DOCTOR && !f.outcome) errs.outcome = true;
-    if (!String(f.cause || "").trim()) errs.cause = true;
-    if (!f.intervention) errs.intervention = true;
-  }
-  return errs;
-}
-
-interface AppState {
-  view: ViewName;
-  type: "med" | "drp";
-  form: FormState;
-  records: Incident[];
-  search: string;
-  dashType: "all" | "med" | "drp";
-  dashYear: number; // ปี ค.ศ. ที่เลือกดูในกราฟรายเดือน (0 = ปีปัจจุบัน)
-  cfg: SupabaseCfg;
-  toast: string;
-  saving: boolean;
-  pending: Incident[]; // รายงานที่ยังส่งขึ้นระบบไม่สำเร็จ (รอส่งใหม่)
-  syncing: boolean; // กำลังลองส่งคิวที่ค้างขึ้นระบบ
-  trash: Incident[]; // รายงานในถังขยะ (ลบแบบซ่อน · กู้คืนได้)
-  askDelete: boolean; // ป๊อปยืนยันลบแบบซ่อน (จากหน้ารายละเอียด)
-  hardTarget: Incident | null; // รายงานที่กำลังจะลบถาวร (จากถังขยะ)
-  hardInput: string; // ข้อความยืนยันลบถาวร (ต้องพิมพ์ HN ของเคสให้ตรง)
-  trashBusy: boolean; // กำลังทำงานกับถังขยะ (กันกดซ้ำ)
-  result: "ok" | "fail" | null; // หน้าผลการส่งเต็มจอหลังกดบันทึก (null = ไม่โชว์)
-  resultRec: Incident | null; // รายงานที่รอ "ส่งอีกครั้ง" จากหน้าผล (กรณี fail)
-  resending: boolean; // กำลังกด "ส่งอีกครั้ง" จากหน้าผล
-  rf: RecordFilter;
-  detail: Incident | null;
-  editMode: boolean;
-  editForm: Partial<Incident> & { drug?: string };
-  showHistory: boolean;
-  kpiAnim: number[];
-  showSevLegend: boolean;
-  showNatureLegend: boolean;
-  showDrpLegend: boolean;
-  confirmDiscard: boolean; // ป๊อปยืนยันตอนจะปิดหน้าต่างขณะแก้ไขค้างอยู่
-  confirmSwitch: "med" | "drp" | null; // ป๊อปยืนยันตอนจะสลับ ME↔DRP ทั้งที่กรอกฟอร์มค้างอยู่
-  hadAuto: boolean; // ธง High-alert ถูกติดอัตโนมัติจากยา HAD (true) vs ผู้ใช้ติ๊กเอง (false) — ใช้ตัดสินว่าจะปลดธงให้ตอนลบยาไหม
-  errors: Record<string, boolean>;
-  dashRange: DashRange;
-  dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
-  ddUp: boolean; // เมนู dropdown เด้งขึ้นบน (true) เมื่อช่องอยู่ครึ่งล่างจอ
-  shiftAuto: boolean; // เวรตามเวลาจริงอัตโนมัติ (true) จนกว่าจะกดเลือกเวรเอง (false) — เปิดค้างทั้งวันไม่ต้องรีเฟรช
-  drugs: Drug[]; // คลังยา (autocomplete · โหลดครั้งเดียวแล้ว cache)
-  drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น (หน้ากรอก)
-  efDrugSug: { i: number; term: string } | null; // suggest ช่องยาในโหมดแก้ไข (Phase 3)
-  // ---- หน้า "คลังยา" (จัดการ master data · v0.9.10.0) ----
-  drugSearch: string; // คำค้นในหน้าคลังยา
-  drugFilters: string[]; // ตัวกรองแบบเลือกหลายอัน: "had" · "form:<value>" · "pregDX" (ว่าง = ทั้งหมด)
-  drugSort: { key: string; dir: "asc" | "desc" } | null; // การเรียงคอลัมน์ (null = generic asc)
-  drugEdit: Partial<Drug> | null; // ยาที่กำลังเพิ่ม/แก้ในป๊อป (null = ปิด)
-  drugEditNew: boolean; // true = เพิ่มใหม่ · false = แก้ของเดิม
-  drugEditOrig: Partial<Drug> | null; // สแนปช็อตตอนเปิดป๊อป (ใช้เช็คว่าแก้ค้างไหมก่อนปิด)
-  drugEditConfirmClose: boolean; // ป๊อปยืนยันปิดทั้งที่แก้ค้าง
-  drugLog: { drug: Drug; entries: DrugAudit[] } | null; // ป๊อปประวัติการแก้ไขของยา
-  drugLogLoading: boolean; // กำลังโหลดประวัติ
-  drugBusy: boolean; // กำลังบันทึก (กันกดซ้ำ + โชว์สถานะ)
-}
-
-// ===== style generators (พอร์ตจาก renderVals) =====
-const chip = (sel: boolean) =>
-  sel
-    ? "padding:9px 14px;border-radius:999px;border:1px solid " +
-      AM +
-      ";font-size:14px;font-weight:600;cursor:pointer;background:" +
-      AM +
-      ";color:" +
-      AMT +
-      ";box-shadow:0 4px 12px -3px rgba(245,166,35,.55);"
-    : "padding:9px 14px;border-radius:999px;border:1px solid #CFE7E2;font-size:14px;font-weight:600;cursor:pointer;background:#EAF4F1;color:#0B655D;";
-const seg = (sel: boolean) =>
-  sel
-    ? "flex:1;text-align:center;padding:11px;border-radius:10px;border:none;cursor:pointer;font-size:15px;font-weight:600;background:#fff;color:#0F8A80;box-shadow:0 1px 4px rgba(11,101,93,.18);"
-    : "flex:1;text-align:center;padding:11px;border-radius:10px;border:none;cursor:pointer;font-size:15px;font-weight:500;background:transparent;color:#5B7C78;";
-const nav = (sel: boolean) =>
-  sel
-    ? "border:none;cursor:pointer;font-size:14px;font-weight:600;padding:8px 15px;border-radius:9px;background:" +
-      AM +
-      ";color:" +
-      AMT +
-      ";"
-    : "border:none;cursor:pointer;font-size:14px;font-weight:500;padding:8px 15px;border-radius:9px;background:rgba(255,255,255,.14);color:#DFF1EE;";
-// ปุ่มเมนูมือถือ — เต็มความกว้าง (flex:1) แบ่งเท่ากัน
-const navM = (sel: boolean) =>
-  sel
-    ? "flex:1;text-align:center;border:none;cursor:pointer;font-size:14px;font-weight:600;padding:9px 4px;border-radius:9px;background:" +
-      AM +
-      ";color:" +
-      AMT +
-      ";"
-    : "flex:1;text-align:center;border:none;cursor:pointer;font-size:14px;font-weight:500;padding:9px 4px;border-radius:9px;background:rgba(255,255,255,.14);color:#DFF1EE;";
-const filt = (sel: boolean) =>
-  sel
-    ? "border:none;cursor:pointer;font-size:13px;font-weight:600;padding:8px 14px;border-radius:9px;background:#0F8A80;color:#fff;"
-    : "border:none;cursor:pointer;font-size:13px;font-weight:500;padding:8px 14px;border-radius:9px;background:transparent;color:#0B655D;";
-// ปุ่มเลือกเวร (แทนช่องกรอกเวลา) — active = เทลทึบ
-const shiftBtn = (active: boolean) =>
-  active
-    ? "flex:1;text-align:center;border:1.5px solid #0F8A80;background:#0F8A80;color:#fff;font-size:13.5px;font-weight:600;padding:10px 6px;border-radius:10px;cursor:pointer;white-space:nowrap;"
-    : "flex:1;text-align:center;border:1.5px solid #DCE7E5;background:#fff;color:#475569;font-size:13.5px;font-weight:500;padding:10px 6px;border-radius:10px;cursor:pointer;white-space:nowrap;";
-// เวลาตัวแทนของแต่ละเวร — กดเลือกเวร → เซ็ต occurred_time เป็นค่านี้ (shiftOf จะคืนค่าเวรนั้น) · เก็บตรรกะบันทึกเดิมไว้ทั้งหมด
-const SHIFT_TIME: Record<string, string> = { เวรเช้า: "12:00", เวรบ่าย: "20:00", เวรดึก: "04:00" };
-
-const INPUT_BASE =
-  "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:11px;padding:11px 13px;font-size:15px;color:#0F172A;background:#fff;outline:none;";
-// ใช้ border เต็ม (ไม่ใช่ border-color) กัน React ผสม shorthand/longhand แล้วเส้นขอบหายตอน blur บน iOS
-const INPUT_FOCUS = "border:1.5px solid #F5A623;box-shadow:0 0 0 3px rgba(245,166,35,.2)";
-const badgeMed =
-  "background:#E7F3F1;color:#0B655D;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;";
-const badgeDrp =
-  "background:#FEF3E2;color:#B45309;font-size:12px;font-weight:600;padding:3px 9px;border-radius:999px;white-space:nowrap;";
-// สีธง Preg category ตามความเสี่ยง (A ปลอดภัยสุด → X ห้ามใช้ในหญิงตั้งครรภ์)
-const pregColor = (p: string): string => {
-  const m: Record<string, string> = {
-    A: "background:#DCF3E3;color:#15803D;", // เขียวเข้ม
-    B: "background:#E8F1DD;color:#4D7C0F;", // เขียว
-    C: "background:#FEF3E2;color:#B45309;", // เหลือง/ส้ม
-    D: "background:#FCE4D6;color:#C2410C;", // ส้มแดง
-    X: "background:#FBE0DE;color:#B3261E;", // แดง
-  };
-  return m[p] || "background:#E9ECF3;color:#43526B;"; // ไม่ระบุ = เทา
-};
 
 export default function MedDrpApp() {
   const [mounted, setMounted] = useState(false);
@@ -5191,12 +4990,3 @@ export default function MedDrpApp() {
     );
   }
 }
-
-// สไตล์ที่ใช้ซ้ำในโหมดแก้ไข
-const editLabel = css("font-size:12.5px;font-weight:600;color:#475569;display:block;margin-bottom:5px;");
-const editInput =
-  "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;";
-const editInputSelect =
-  "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 32px 10px 12px;font-size:14px;background-color:#fff;outline:none;";
-const editTextarea =
-  "width:100%;box-sizing:border-box;border:1.5px solid #DCE7E5;border-radius:10px;padding:10px 12px;font-size:14px;outline:none;resize:vertical;line-height:1.5;";

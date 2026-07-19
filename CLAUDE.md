@@ -33,7 +33,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.12.0) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.12.1) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -55,7 +55,15 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 
 ## สถาปัตยกรรม (สำคัญ)
 
-- **`components/MedDrpApp.tsx`** = แอปทั้งหมดในไฟล์เดียว (client component)
+> **🧹 กำลังแบ่งไฟล์ (refactor · แผน `Phase 1+2` เริ่ม 19 ก.ค. 2569):** `MedDrpApp.tsx`
+> เคยเป็นก้อนเดียว 5,202 บรรทัด · **Phase 1 (เสร็จ v0.9.12.1):** ย้าย "ของนิ่ง" ออก →
+> `lib/styles.ts` (ปุ่ม/สไตล์: chip/nav/INPUT_*/editLabel ฯลฯ) · `lib/records.ts` (ฟังก์ชัน
+> บริสุทธิ์: readList/writeList/dedupUnsynced/formatAn/matchSearch/validateIncident) ·
+> `components/MedDrpApp.types.ts` (`interface AppState`) — **pure move ไม่เปลี่ยนพฤติกรรม** ·
+> **Phase 2 (ยังไม่ทำ):** แยก 6 view (Form/Dashboard/Records/Detail/DrugsAdmin/Settings) เป็น
+> `components/views/*.tsx` ผ่าน Context `useMedDrp()` · state ยังเป็นก้อนเดียว (setState merge เดิม)
+
+- **`components/MedDrpApp.tsx`** = แอปเกือบทั้งหมดในไฟล์เดียว (client component · หลัง Phase 1 เหลือ ~4,990 บรรทัด)
   - พอร์ตตรงจากคลาส `DCLogic` ของดีไซน์: `state` เดียว + `setState(u)` helper ที่ merge partial (เลียนแบบ React class `this.setState`)
   - อ่านค่า state ปัจจุบันแบบ sync ผ่าน `stateRef.current` (สำหรับ async เช่น `save`, `saveEdit`, `loadRecords`)
   - ค่า derived (kpis, bars, breakdowns, recRows, detailRows, historyList) คำนวณในบอดี้ render — ตรงกับ `renderVals()` เดิม
