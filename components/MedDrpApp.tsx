@@ -154,8 +154,9 @@ function validateIncident(f: Partial<FormState>, type: "med" | "drp"): Record<st
   const suArr = Array.isArray(f.source_units) ? f.source_units : f.source_units ? [f.source_units] : [];
   if (!suArr.length) errs.source_units = true;
   if (suArr.includes("อื่น ๆ") && !String(f.source_unit_other || "").trim()) errs.source_unit_other = true;
+  // ประเภท Error — บังคับเลือกอย่างน้อย 1 ทั้ง ME และ DRP (ขั้นตอนที่พลาด · ใช้ร่วมกัน)
+  if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
   if (type === "med") {
-    if (!(Array.isArray(f.error_type) ? f.error_type.length : f.error_type)) errs.error_type = true;
     const natureArr = Array.isArray(f.error_nature) ? f.error_nature : f.error_nature ? [f.error_nature] : [];
     if (!natureArr.length) errs.error_nature = true;
     // #14: เลือก "อื่น ๆ" ต้องระบุข้อความด้วย
@@ -210,6 +211,7 @@ interface AppState {
   dashRange: DashRange;
   dd: string | null; // custom dropdown ที่เปิดอยู่ (id) เช่น "reporter" / "edit-reporter"
   ddUp: boolean; // เมนู dropdown เด้งขึ้นบน (true) เมื่อช่องอยู่ครึ่งล่างจอ
+  shiftAuto: boolean; // เวรตามเวลาจริงอัตโนมัติ (true) จนกว่าจะกดเลือกเวรเอง (false) — เปิดค้างทั้งวันไม่ต้องรีเฟรช
   drugs: Drug[]; // คลังยา (autocomplete · โหลดครั้งเดียวแล้ว cache)
   drugSug: { i: number; term: string } | null; // ช่องยาแถวที่เปิด suggest + คำค้น (หน้ากรอก)
   efDrugSug: { i: number; term: string } | null; // suggest ช่องยาในโหมดแก้ไข (Phase 3)
@@ -331,6 +333,7 @@ export default function MedDrpApp() {
     dashRange: { preset: "all", from: "", to: "" },
     dd: null,
     ddUp: false,
+    shiftAuto: true,
     drugs: [],
     drugSug: null,
     efDrugSug: null,
@@ -393,7 +396,7 @@ export default function MedDrpApp() {
 
   // สลับประเภทฟอร์ม ME↔DRP · เคลียร์ค่าเดิม (เก็บแค่ HN/ผู้รายงาน) แล้วเริ่มฟอร์มประเภทใหม่
   const doSwitchType = (target: "med" | "drp") => {
-    setState((st) => ({ type: target, form: emptyForm(DEFAULT_REPORTER, st.form), errors: {}, confirmSwitch: null, hadAuto: false }));
+    setState((st) => ({ type: target, form: emptyForm(DEFAULT_REPORTER, st.form), errors: {}, confirmSwitch: null, hadAuto: false, shiftAuto: true }));
     draftSoon();
   };
   // #7: ถ้ากรอกฟอร์มค้างอยู่ กดสลับประเภท → เตือนก่อน (กันเผลอกดแล้วข้อมูลที่กรอกหาย) · ฟอร์มว่าง = สลับได้เลย
@@ -978,6 +981,14 @@ export default function MedDrpApp() {
     const tick = () => {
       const d = new Date();
       setClock(two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds()));
+      // เวรตามเวลาจริงอัตโนมัติ (เปิดค้างทั้งวันไม่ต้องรีเฟรช) — เฉพาะตอนยังไม่ได้กดเลือกเวรเอง
+      const st = stateRef.current;
+      if (st.shiftAuto) {
+        const nt = two(d.getHours()) + ":" + two(d.getMinutes());
+        if (shiftOf(nt) !== shiftOf(st.form.occurred_time)) {
+          setState((s) => ({ form: { ...s.form, occurred_time: nt } }));
+        }
+      }
     };
     tick();
     const id = setInterval(tick, 1000);
@@ -1242,7 +1253,7 @@ export default function MedDrpApp() {
     let sent = true;
     if (isConfigured(cfg)) sent = await pushIncident(cfg, rec);
     if (sent) dequeuePending(rec.id);
-    setState({ saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }), hadAuto: false });
+    setState({ saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }), hadAuto: false, shiftAuto: true });
     savingRef.current = false;
     if (sent) {
       setState({ result: "ok", resultRec: null }); // หน้าผล "ส่งสำเร็จ" เต็มจอ
@@ -1622,8 +1633,9 @@ export default function MedDrpApp() {
       "px;",
   }));
 
+  // ประเภท Error นับรวมทุกเคส (Med + DRP) — เดิมกรองเฉพาะ Med · ตอนนี้ DRP ก็มีช่องนี้แล้ว
   const byErr: Record<string, number> = {};
-  recs.filter((r) => r.type === "med").forEach((r) => {
+  recs.forEach((r) => {
     natureToArray(r.error_type).forEach((k) => {
       byErr[k] = (byErr[k] || 0) + 1;
     });
@@ -1651,7 +1663,7 @@ export default function MedDrpApp() {
       "%;",
   }));
   const typeBreak = S.dashType === "drp" ? drpBreak : errorBreak;
-  const breakTitle = S.dashType === "drp" ? "แยกตามประเภท DRP" : "แยกตามประเภท Med Error";
+  const breakTitle = S.dashType === "drp" ? "แยกตามประเภท DRP" : "แยกตามประเภท Error";
 
   // Phase 2: นับยาบ่อยโดย group ด้วย "รหัสยา" (id) เมื่อมี → เปลี่ยนชื่อยาแล้วไม่นับซ้ำ · ป้าย = ชื่อล่าสุด
   //          ยาที่พิมพ์เอง/เคสเก่าไม่มี id → group ด้วยข้อความเดิม
@@ -1925,6 +1937,7 @@ export default function MedDrpApp() {
           ["จุดที่พบ", dt2.location],
           ...(dt2.an ? ([["AN (เลขที่ผู้ป่วยใน)", dt2.an]] as [string, unknown][]) : []),
           ["หน่วยงานต้นเหตุ", sourceDisp],
+          ["ประเภท Error", natureText(dt2.error_type)],
           ["ประเภทปัญหาจากการใช้ยา (DRP)", drpDisp],
           ["ระดับความรุนแรง (NCC MERP)", dt2.severity],
           ["ยาที่เกี่ยวข้อง", drugDisp],
@@ -1968,6 +1981,7 @@ export default function MedDrpApp() {
         ]
       : [
           ["วันที่/เวลา", (h.occurred_at || "—") + " " + (h.occurred_time || "")],
+          ["ประเภท Error", natureText(h.error_type)],
           ["ประเภท DRP", drpLabel(h.drp_type)],
           ["ระดับ", h.severity],
           ["รายละเอียดเหตุการณ์ / สาเหตุ", h.cause],
@@ -2560,7 +2574,10 @@ export default function MedDrpApp() {
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setField("occurred_time", SHIFT_TIME[s])}
+                      onClick={() => {
+                        setState({ shiftAuto: false });
+                        setField("occurred_time", SHIFT_TIME[s]);
+                      }}
                       style={css(shiftBtn(shiftOf(f.occurred_time) === s))}
                     >
                       {s}
@@ -2894,71 +2911,79 @@ export default function MedDrpApp() {
     );
   }
 
+  // บล็อกเลือก "ประเภท Error" (ขั้นตอนที่พลาด) — ใช้ร่วมทั้งฟอร์ม Med Error และ DRP
+  // DRP ก็ต้องระบุว่าปัญหาเกิดที่ขั้นตอนไหน (สั่ง/คัดลอก/จัดยา/จ่ายยา/บริหารยา) เพื่อให้ Dashboard นับรวมได้
+  function renderErrorTypeField() {
+    return (
+      <div style={css("margin-bottom:16px;")}>
+        <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
+          ประเภท Error <span style={css("color:#DC2626;")}>*</span>{" "}
+          <span style={css("color:#94A3B8;font-weight:400;")}>ขั้นตอนที่พลาด · เลือกได้หลายอัน</span>
+        </label>
+        <div style={css(isMobile ? "display:grid;grid-template-columns:1fr 1fr;gap:8px;" : "display:flex;flex-wrap:wrap;gap:8px;")}>
+          {ERROR_TYPES.map((t, i) => {
+            const sel = natureToArray(f.error_type).includes(t.key);
+            // ปุ่มตัวสุดท้ายที่เหลือเดี่ยว (จำนวนคี่) → span เต็มแถว อยู่กลาง สมมาตร + ไม่ลดฟอนต์
+            const lastOdd = isMobile && i === ERROR_TYPES.length - 1 && ERROR_TYPES.length % 2 === 1;
+            return (
+              <button
+                key={t.key}
+                onClick={() => toggleErrType(t.key)}
+                style={css(
+                  chip(sel) +
+                    (isMobile
+                      ? lastOdd
+                        ? "grid-column:1 / -1;width:100%;box-sizing:border-box;text-align:center;white-space:normal;line-height:1.25;padding:10px 8px;"
+                        : "width:100%;box-sizing:border-box;text-align:center;font-size:12.5px;white-space:normal;line-height:1.25;padding:10px 8px;"
+                      : "")
+                )}
+              >
+                {t.key}
+                {t.th ? (
+                  <>
+                    {" "}
+                    <span style={{ whiteSpace: "nowrap" }}>({t.th})</span>
+                  </>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+        {errTypeSel.length > 0 && (
+          <div
+            style={css(
+              "margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:9px;"
+            )}
+          >
+            {errTypeSel.map((t) => (
+              <div key={t.key} style={css("display:flex;gap:9px;align-items:flex-start;")}>
+                <span
+                  style={css(
+                    "flex:none;background:#F5A623;color:#3B2200;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;"
+                  )}
+                >
+                  {t.th || t.key}
+                </span>
+                <span style={css("font-size:12.5px;color:#92400E;line-height:1.5;")}>{t.desc}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {S.errors.error_type && (
+          <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกประเภท Error</div>
+        )}
+      </div>
+    );
+  }
+
   function renderMedFields() {
     const natureSel = ERROR_NATURE.filter((n) => Array.isArray(f.error_nature) && f.error_nature.includes(n.key));
     const hasNatureSel = Array.isArray(f.error_nature) && f.error_nature.length > 0;
     const showNatureOther = Array.isArray(f.error_nature) && f.error_nature.includes("อื่น ๆ");
     return (
       <div>
-        {/* ประเภท Error */}
-        <div style={css("margin-bottom:16px;")}>
-          <label style={css("font-size:13px;font-weight:600;color:#475569;display:block;margin-bottom:8px;")}>
-            ประเภท Error <span style={css("color:#DC2626;")}>*</span>{" "}
-            <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
-          </label>
-          <div style={css(isMobile ? "display:grid;grid-template-columns:1fr 1fr;gap:8px;" : "display:flex;flex-wrap:wrap;gap:8px;")}>
-            {ERROR_TYPES.map((t, i) => {
-              const sel = natureToArray(f.error_type).includes(t.key);
-              // ปุ่มตัวสุดท้ายที่เหลือเดี่ยว (จำนวนคี่) → span เต็มแถว อยู่กลาง สมมาตร + ไม่ลดฟอนต์
-              const lastOdd = isMobile && i === ERROR_TYPES.length - 1 && ERROR_TYPES.length % 2 === 1;
-              return (
-                <button
-                  key={t.key}
-                  onClick={() => toggleErrType(t.key)}
-                  style={css(
-                    chip(sel) +
-                      (isMobile
-                        ? lastOdd
-                          ? "grid-column:1 / -1;width:100%;box-sizing:border-box;text-align:center;white-space:normal;line-height:1.25;padding:10px 8px;"
-                          : "width:100%;box-sizing:border-box;text-align:center;font-size:12.5px;white-space:normal;line-height:1.25;padding:10px 8px;"
-                        : "")
-                  )}
-                >
-                  {t.key}
-                  {t.th ? (
-                    <>
-                      {" "}
-                      <span style={{ whiteSpace: "nowrap" }}>({t.th})</span>
-                    </>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
-          {errTypeSel.length > 0 && (
-            <div
-              style={css(
-                "margin-top:9px;background:#FEF7EC;border:1px solid #F6D89A;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:9px;"
-              )}
-            >
-              {errTypeSel.map((t) => (
-                <div key={t.key} style={css("display:flex;gap:9px;align-items:flex-start;")}>
-                  <span
-                    style={css(
-                      "flex:none;background:#F5A623;color:#3B2200;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;white-space:nowrap;"
-                    )}
-                  >
-                    {t.th || t.key}
-                  </span>
-                  <span style={css("font-size:12.5px;color:#92400E;line-height:1.5;")}>{t.desc}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {S.errors.error_type && (
-            <div style={css("margin-top:6px;font-size:12.5px;color:#DC2626;font-weight:600;")}>⚠ กรุณาเลือกประเภท Error</div>
-          )}
-        </div>
+        {/* ประเภท Error (ช่องร่วม Med/DRP) */}
+        {renderErrorTypeField()}
 
         {/* ลักษณะความคลาดเคลื่อน (multi) */}
         <div style={css("margin-bottom:16px;")}>
@@ -3113,6 +3138,9 @@ export default function MedDrpApp() {
     const showDrpOther = f.drp_type === "อื่น ๆ";
     return (
       <div>
+        {/* ประเภท Error (ช่องร่วม Med/DRP) — วางเป็นช่องแรกเหมือนหน้า ME · ระบุขั้นตอนที่พลาด */}
+        {renderErrorTypeField()}
+
         <div style={css("margin-bottom:16px;")}>
           <div style={css("display:flex;align-items:center;margin-bottom:8px;gap:8px;")}>
             <label style={css("font-size:13px;font-weight:600;color:#475569;")}>
@@ -4268,6 +4296,19 @@ export default function MedDrpApp() {
               </div>
             )}
             {renderEfSourceUnits()}
+            <div>
+              <label style={editLabel}>
+                ประเภท Error <span style={css("color:#94A3B8;font-weight:400;")}>เลือกได้หลายอัน</span>
+              </label>
+              <div style={css("display:flex;flex-wrap:wrap;gap:7px;")}>
+                {ERROR_TYPES.map((t) => (
+                  <button key={t.key} type="button" onClick={() => efToggleArr("error_type", t.key)} style={css(chip(efArr("error_type").includes(t.key)))}>
+                    {t.key}
+                    {t.th ? " (" + t.th + ")" : ""}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div>
               <label style={editLabel}>ประเภทปัญหาจากการใช้ยา (DRP)</label>
               <select value={ef.drp_type || ""} onChange={(e) => setEf("drp_type", e.target.value)} style={css(editInputSelect)}>
