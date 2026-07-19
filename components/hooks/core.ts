@@ -7,3 +7,10 @@ export interface Core {
   setState: SetState;
   stateRef: MutableRefObject<AppState>;
 }
+
+// จัด drug_ids ให้ยาวเท่า drugs เสมอ (เผื่อร่างเก่า/ฟอร์มไม่มี) — ใช้ร่วม useFormMutations + useEditForm
+export function alignIds(ids: (number | null)[], len: number): (number | null)[] {
+  const a = ids.slice();
+  while (a.length < len) a.push(null);
+  return a;
+}

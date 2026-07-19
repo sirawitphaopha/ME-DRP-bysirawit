@@ -33,7 +33,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.12.5) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.12.6) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -73,9 +73,17 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 > `components/hooks/*.ts` — `useAudioAlert` (เสียง/สั่น) · `useDraft` (ร่างอัตโนมัติ) · `useToast` (flash) ·
 > `useDrugsAdmin` (CRUD คลังยา + กรอง/CSV) · `useDashboard` (ช่วงเวลา + KPI animate) · แต่ละ hook รับ
 > `core={setState,stateRef}` (+flash) · จัดการ timer/cleanup เอง (ย้าย dtRef/tRef/ivRef ออกจาก mount effect) ·
-> **Phase 3 Step 6–9 (ยังไม่ทำ · อนาคต):** `useFormMutations`/`useEditForm`/`useRecords`/`useRealtime` (ส่วนลึก เสี่ยงสูง)
+> **Phase 3 Step 6–9 (เสร็จครบ v0.9.12.6 · ส่วนลึก):** `useFormMutations` (setField/toggle/เลือกยา/สลับ ME↔DRP) ·
+> `useEditForm` (โหมดแก้ไข: startEdit/setEf/efArr/efToggleArr/เลือกยา · saveEdit อยู่ใน useRecords) ·
+> `useRecords` (**ก้อนใหญ่สุด** — คิวส่ง mutatePending/enqueue/dequeue/flushPending + loadRecords/refreshRecords/loadTrash/
+> backfillDrugIds + save/saveEdit/resendResult + ลบ 2 ชั้น + exportCsv · owns flushingRef/savingRef) · `useRealtime`
+> (subscribe incidents+drugs + visibility/online · dep = cfg.url/cfg.key กัน re-subscribe) · storage keys ยกไป
+> `components/hooks/keys.ts` (REC/CFG/DRAFT/PENDING · ใช้ร่วม) · `alignIds` ยกไป `hooks/core.ts` (ใช้ร่วม form+edit) ·
+> **pure move ไม่เปลี่ยนพฤติกรรม** · verify runtime จริง (Playwright: กรอก+save flow/แก้ไข/สลับ/dashboard · ไม่มี error) ·
+> **`MedDrpApp.tsx` เหลือ ~824 บรรทัด (จาก 5,202 · −84%)** = state/refs · mount effect · effect เล็ก (matchMedia/clock/
+> scrollTo/kpi-anim/body-lock/backfill) · `renderReporterDD`+`drugPickerUI` · ประกอบ hooks → ctx + nav/return JSX
 
-- **`components/MedDrpApp.tsx`** = แกนกลางของแอป (client component · หลัง Phase 2 เหลือ ~1,850 บรรทัด · จาก 5,202)
+- **`components/MedDrpApp.tsx`** = แกนกลางของแอป (client component · หลัง Phase 3 เหลือ ~824 บรรทัด · จาก 5,202 · −84%)
   - พอร์ตตรงจากคลาส `DCLogic` ของดีไซน์: `state` เดียว + `setState(u)` helper ที่ merge partial (เลียนแบบ React class `this.setState`)
   - อ่านค่า state ปัจจุบันแบบ sync ผ่าน `stateRef.current` (สำหรับ async เช่น `save`, `saveEdit`, `loadRecords`)
   - ค่า derived (kpis, bars, breakdowns, recRows, detailRows, historyList) คำนวณในบอดี้ render — ตรงกับ `renderVals()` เดิม

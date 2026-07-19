@@ -1,64 +1,17 @@
 "use client";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { AM, APP_VERSION, REPORTERS } from "@/lib/constants";
 import {
-  AM,
-  AMT,
-  APP_VERSION,
-  DRP_TYPES,
-  ERROR_NATURE,
-  ERROR_TYPES,
-  SOURCE_UNITS,
-  CONSULT_DOCTOR,
-  INTERVENTIONS,
-  LOCATIONS,
-  IPD_LOCATION,
-  OUTCOMES,
-  REPORTERS,
-  SEVERITY,
-  SEV_TIERS,
-  SHIFTS,
-  THMON,
-} from "@/lib/constants";
-import {
-  drpLabel,
-  drugArr,
   drugText,
-  resolveDrugLines,
   emptyFilter,
   emptyForm,
-  fmtThaiDateTime,
-  natureText,
-  natureToArray,
-  drugFlatLine,
   drugSearchText,
-  nowTime,
-  outcomeLabel,
   shiftOf,
-  today,
-  uuid,
-  isUuid,
 } from "@/lib/helpers";
-import { seed } from "@/lib/seed";
-import {
-  envConfig,
-  fetchDrugs,
-  fetchIncidents,
-  fetchDeletedIncidents,
-  pushIncident,
-  pushUpdate,
-  softDeleteIncident,
-  restoreIncident,
-  hardDeleteIncident,
-  isConfigured,
-  subscribeIncidents,
-  subscribeDrugs,
-  insertDrug,
-  updateDrug,
-  fetchDrugAudit,
-} from "@/lib/data";
+import { envConfig, fetchDrugs, isConfigured } from "@/lib/data";
 import { css } from "@/lib/style";
-import { HButton, HDiv, HFileLabel, HInput, HSelect, HTextarea, HTr } from "@/components/ui";
-import { DashRange, Drug, DrugAudit, FormState, Incident, RecordFilter, SupabaseCfg, ViewName } from "@/lib/types";
+import { HButton, HDiv, HInput } from "@/components/ui";
+import { Drug, FormState, RecordFilter, ViewName } from "@/lib/types";
 import { AppState } from "@/components/MedDrpApp.types";
 import { MedDrpContext, MedDrpCtx } from "@/components/MedDrpContext";
 import SettingsView from "@/components/views/SettingsView";
@@ -76,35 +29,17 @@ import { useDraft } from "@/components/hooks/useDraft";
 import { useToast } from "@/components/hooks/useToast";
 import { useDrugsAdmin } from "@/components/hooks/useDrugsAdmin";
 import { useDashboard } from "@/components/hooks/useDashboard";
-import { dedupUnsynced, formatAn, matchSearch, readList, validateIncident, writeList } from "@/lib/records";
-import {
-  INPUT_BASE,
-  INPUT_FOCUS,
-  SHIFT_TIME,
-  badgeDrp,
-  badgeMed,
-  chip,
-  editInput,
-  editInputSelect,
-  editLabel,
-  editTextarea,
-  filt,
-  nav,
-  navM,
-  pregColor,
-  seg,
-  shiftBtn,
-} from "@/lib/styles";
+import { useFormMutations } from "@/components/hooks/useFormMutations";
+import { useEditForm } from "@/components/hooks/useEditForm";
+import { useRecords } from "@/components/hooks/useRecords";
+import { useRealtime } from "@/components/hooks/useRealtime";
+import { CFG_KEY, DRAFT_KEY, PENDING_KEY } from "@/components/hooks/keys";
+import { readList } from "@/lib/records";
+import { INPUT_FOCUS, nav, navM, pregColor } from "@/lib/styles";
 
 const ORG_NAME = "ห้องยา รพ.ปรางค์กู่";
 const DEFAULT_REPORTER = "";
 const START_VIEW: ViewName = "form";
-
-const REC_KEY = "meddrp_records_v6"; // v6: ล้าง demo ที่ค้างในเครื่อง (เอา seed ออกจากโค้ดแล้ว · ข้อมูลจริงดึงจาก Supabase)
-const CFG_KEY = "meddrp_cfg";
-const DRAFT_KEY = "meddrp_draft";
-// คิวรายงานที่ยังส่งขึ้นระบบส่วนกลางไม่สำเร็จ (เก็บไว้ในเครื่องเพื่อลองส่งใหม่อัตโนมัติ · กันข้อมูลหาย)
-const PENDING_KEY = "meddrp_pending_v1";
 
 
 export default function MedDrpApp() {
@@ -200,127 +135,53 @@ export default function MedDrpApp() {
   // Dashboard — ช่วงเวลา + อนิเมชัน KPI — Phase 3 Step 5 · ยกเป็น hook (hook จัดการ interval/cleanup เอง)
   const { animateKpi, animateKpis, setDashPreset } = useDashboard({ setState, stateRef });
 
-  // สลับประเภทฟอร์ม ME↔DRP · เคลียร์ค่าเดิม (เก็บแค่ HN/ผู้รายงาน) แล้วเริ่มฟอร์มประเภทใหม่
-  const doSwitchType = (target: "med" | "drp") => {
-    setState((st) => ({ type: target, form: emptyForm(DEFAULT_REPORTER, st.form), errors: {}, confirmSwitch: null, hadAuto: false, shiftAuto: true }));
-    draftSoon();
-  };
-  // #7: ถ้ากรอกฟอร์มค้างอยู่ กดสลับประเภท → เตือนก่อน (กันเผลอกดแล้วข้อมูลที่กรอกหาย) · ฟอร์มว่าง = สลับได้เลย
-  const requestSwitchType = (target: "med" | "drp") => {
-    if (stateRef.current.type === target) return;
-    if (hasDraftContent(stateRef.current.form)) {
-      setState({ confirmSwitch: target });
-      return;
-    }
-    doSwitchType(target);
-  };
+  // การแก้ค่าในฟอร์มกรอก (Med/DRP) — setField/toggle/เลือกยา/สลับประเภท — Phase 3 Step 6 · ยกเป็น hook
+  const {
+    doSwitchType,
+    requestSwitchType,
+    setField,
+    setLocation,
+    setDrugAt,
+    addDrug,
+    pickDrug,
+    removeDrug,
+    toggleHighAlert,
+    toggleNature,
+    toggleSourceUnit,
+    toggleErrType,
+    setDrpType,
+  } = useFormMutations({ setState, stateRef }, { draftSoon, hasDraftContent });
+  // โหมดแก้ไขเคส — startEdit/setEf/efArr/efToggleArr/เลือกยา — Phase 3 Step 7 · ยกเป็น hook (saveEdit ยังอยู่ราก)
+  const {
+    startEdit,
+    cancelEdit,
+    setEf,
+    setEfDrugAt,
+    addEfDrug,
+    pickEfDrug,
+    removeEfDrug,
+    setEfLocation,
+    efArr,
+    efToggleArr,
+  } = useEditForm({ setState, stateRef });
 
-  // ---------- records I/O + คิวส่งขึ้นระบบ ----------
-  const flushingRef = useRef(false);
-  const savingRef = useRef(false); // #1 กันกดปุ่มบันทึกซ้ำระหว่างกำลังส่ง (stateRef อัปเดตหลัง render จึงต้องใช้ ref แยก)
-
-  // อ่าน-แก้-เขียนคิว PENDING แบบ re-read ล่าสุดทุกครั้ง (กัน race: ไม่เขียนทับของที่เพิ่งเข้าคิวระหว่าง await)
-  const mutatePending = useCallback(
-    (fn: (list: Incident[]) => Incident[]) => {
-      const next = fn(readList(PENDING_KEY));
-      writeList(PENDING_KEY, next);
-      setState({ pending: next });
-      return next;
-    },
-    [setState]
-  );
-
-  // เพิ่มรายงานเข้าคิว "รอส่งขึ้นระบบ" (กันซ้ำด้วย id · re-read ล่าสุด)
-  const enqueuePending = useCallback(
-    (list: Incident[]) => {
-      mutatePending((cur) => {
-        const ids = new Set(cur.map((r) => r.id));
-        const add = list.filter((r) => r && !ids.has(r.id));
-        return add.length ? [...cur, ...add] : cur;
-      });
-    },
-    [mutatePending]
-  );
-
-  // เอารายการออกจากคิว (re-read ล่าสุด · ไม่ทับทั้งชุด)
-  const dequeuePending = useCallback((id: string) => mutatePending((list) => list.filter((r) => r.id !== id)), [mutatePending]);
-
-  // ลองส่งคิวที่ค้างขึ้นระบบส่วนกลาง — เอาออก "ทีละตัวที่สำเร็จ" (re-read) ไม่เขียนทับทั้งชุด (กัน race)
-  const flushPending = useCallback(async () => {
-    if (flushingRef.current) return;
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) return;
-    const snapshot = readList(PENDING_KEY);
-    if (!snapshot.length) return;
-    flushingRef.current = true;
-    setState({ syncing: true });
-    let synced = 0;
-    for (const p of snapshot) {
-      let rec = p;
-      let curId = p.id;
-      // id เก่าที่ไม่ใช่ uuid (รายงานเก่าที่เคยส่งไม่ผ่าน) → ออกใหม่ + อัปเดตทั้ง records และ pending ก่อนส่ง
-      if (!isUuid(curId)) {
-        const nid = uuid();
-        const oldId = curId;
-        const recs = (stateRef.current.records || []).map((r) => (r.id === oldId ? { ...r, id: nid } : r));
-        writeList(REC_KEY, recs);
-        setState({ records: recs });
-        mutatePending((list) => list.map((r) => (r.id === oldId ? { ...r, id: nid } : r)));
-        rec = { ...rec, id: nid };
-        curId = nid;
-      }
-      const ok = await pushIncident(cfg, rec);
-      if (ok) {
-        synced++;
-        dequeuePending(curId);
-      }
-    }
-    flushingRef.current = false;
-    setState({ syncing: false });
-    if (synced > 0) {
-      flash(synced + " รายงานที่ค้างส่งขึ้นระบบเรียบร้อยแล้ว ✓");
-      // #22: ถ้าหน้าผล "ส่งไม่สำเร็จ" ยังค้าง และเคสนั้นเพิ่งซิงก์สำเร็จ → สลับเป็นหน้าสำเร็จ
-      const rr = stateRef.current.resultRec;
-      if (stateRef.current.result === "fail" && rr && !readList(PENDING_KEY).some((r) => r.id === rr.id)) {
-        setState({ result: "ok", resultRec: null });
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setState, mutatePending, dequeuePending]);
-
-  const loadRecords = useCallback(async () => {
-    const cfg = stateRef.current.cfg;
-    // 1) โชว์ข้อมูลในเครื่องทันที (ไม่บล็อกด้วย network)
-    const local = readList(REC_KEY);
-    if (local.length) setState({ records: local });
-    // 2) ถ้าตั้งค่า Supabase แล้ว → ดึงข้อมูลจริง แล้ว "รวม" กับของในเครื่อง (ไม่ทับทิ้ง)
-    if (isConfigured(cfg)) {
-      try {
-        const d = await fetchIncidents(cfg);
-        const serverIds = new Set(d.map((r) => r.id));
-        // เคสที่ยังไม่ขึ้น server = อยู่ในคิว pending (แหล่งความจริง) หรือเป็น local ที่ id ยังไม่ใช่ uuid (เคสเก่า)
-        // — เคสที่ลบไปถังขยะ (มีบน server แต่ deleted_at ไม่ null) ไม่เข้าเงื่อนไขนี้ ไม่ถูกดึงกลับ
-        const unsynced = dedupUnsynced(readList(PENDING_KEY), local, serverIds);
-        const merged = unsynced.length ? [...unsynced, ...d] : d;
-        setState({ records: merged });
-        writeList(REC_KEY, merged);
-        if (unsynced.length) {
-          enqueuePending(unsynced);
-          flushPending();
-        }
-      } catch {}
-    }
-  }, [setState, enqueuePending, flushPending]);
-
-  // โหลดรายงานในถังขยะ (ลบแบบซ่อน) — ใช้ในหน้าตั้งค่า
-  const loadTrash = useCallback(async () => {
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) return;
-    try {
-      const d = await fetchDeletedIncidents(cfg);
-      setState({ trash: d });
-    } catch {}
-  }, [setState]);
+  // records I/O + คิวส่ง + save/saveEdit/resendResult + ลบ 2 ชั้น + CSV — Phase 3 Step 8 · ยกเป็น hook (ก้อนใหญ่สุด)
+  const {
+    enqueuePending,
+    dequeuePending,
+    flushPending,
+    loadRecords,
+    loadTrash,
+    refreshRecords,
+    backfillDrugIds,
+    save,
+    resendResult,
+    doSoftDelete,
+    doRestore,
+    doHardDelete,
+    saveEdit,
+    exportCsv,
+  } = useRecords({ setState, stateRef }, { flash, unlockAudio, alertFail, clearDraft });
 
 
   // ---------- mount ----------
@@ -371,145 +232,8 @@ export default function MedDrpApp() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---------- Realtime: ข้อมูลสดข้ามเครื่อง ----------
-  // ดึงข้อมูลใหม่ทั้งชุดแบบเงียบ (ไม่ล้างหน้าจอระหว่างรอ) แล้วทับ state + cache ในเครื่อง
-  // แจ้งเตือนเฉพาะตอนข้อมูลเปลี่ยนจริง — เครื่องที่เป็นคนบันทึกเองจะไม่เด้งซ้ำ (state ตรงกับ server อยู่แล้ว)
-  const refreshRecords = useCallback(async () => {
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) return;
-    try {
-      const d = await fetchIncidents(cfg);
-      const cur = stateRef.current.records || [];
-      const serverIds = new Set(d.map((r) => r.id));
-      // เคสที่ยังไม่ขึ้น server (คิว pending = แหล่งความจริง) + local ที่ id ยังไม่ใช่ uuid → คงไว้บนสุด
-      // เคสที่ลบไปถังขยะจะหลุดจาก server active และไม่อยู่ในคิว → หายจากหน้าจอตามจริง
-      const unsynced = dedupUnsynced(readList(PENDING_KEY), cur, serverIds);
-      const merged = unsynced.length ? [...unsynced, ...d] : d;
-      const same = JSON.stringify(merged) === JSON.stringify(cur);
-      if (same) return;
-      setState({ records: merged });
-      // ถ้ากำลังเปิดหน้ารายละเอียดของเคสที่เพิ่งถูกแก้จากอีกเครื่อง → อัปเดตหน้าที่เปิดอยู่ด้วย
-      // #23: แต่ถ้ากำลังแก้ไขค้างอยู่ ห้ามทับ detail (กันประวัติเวอร์ชันปนกับเวอร์ชันของเครื่องอื่น)
-      const open = stateRef.current.detail;
-      if (open && !stateRef.current.editMode) {
-        const fresh = d.find((r) => r.id === open.id);
-        if (fresh) setState({ detail: fresh });
-      }
-      writeList(REC_KEY, merged);
-      flash("อัปเดตข้อมูลล่าสุดจากเครื่องอื่นแล้ว ✓");
-    } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setState]);
-
-  // Phase 2: จับคู่รหัสยาให้เคสเก่าอัตโนมัติ (best-effort · ครั้งเดียวต่อเครื่อง)
-  // แมตช์เฉพาะข้อความยาที่ "ตรงเป๊ะ" กับ drugFlatLine ของยาในคลังปัจจุบัน (ยาที่ยังไม่เคยเปลี่ยนชื่อ)
-  // เคสที่แมตช์ไม่ได้ (ยาเปลี่ยนชื่อไปแล้ว/พิมพ์เอง) พี่กันปรับเองใน Phase 3
-  const backfillDrugIds = useCallback(async () => {
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) return;
-    try {
-      if (localStorage.getItem("meddrp_drugid_backfill_v1")) return;
-    } catch {}
-    const drugs = stateRef.current.drugs || [];
-    if (!drugs.length) return; // คลังยายังไม่โหลด รอรอบหน้า
-    const byLine = new Map<string, number>();
-    drugs.forEach((d) => byLine.set(drugFlatLine(d), d.id));
-    const recs = stateRef.current.records || [];
-    const toUpdate: Incident[] = [];
-    recs.forEach((r) => {
-      if (!isUuid(r.id)) return; // เฉพาะเคสที่ขึ้น server แล้ว
-      const texts = drugArr(r);
-      if (!texts.length) return;
-      const existing = r.drug_ids || [];
-      if (existing.length >= texts.length && existing.every((x) => x != null)) return; // ผูกครบแล้ว
-      const ids = texts.map((t, i) => (existing[i] != null ? existing[i] : byLine.has(t) ? (byLine.get(t) as number) : null));
-      if (ids.some((x, i) => x !== (existing[i] ?? null))) toUpdate.push({ ...r, drug_ids: ids });
-    });
-    if (toUpdate.length) {
-      for (const rec of toUpdate) {
-        try {
-          await pushUpdate(cfg, rec);
-        } catch {}
-      }
-      refreshRecords();
-    }
-    try {
-      localStorage.setItem("meddrp_drugid_backfill_v1", "1");
-    } catch {}
-  }, [refreshRecords]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    const cfg = state.cfg;
-    if (!isConfigured(cfg)) return;
-
-    // รวบ event ที่มาถี่ ๆ (บันทึกรวดเดียวหลายเคส) ให้ดึงข้อมูลรอบเดียว
-    let deb: ReturnType<typeof setTimeout> | null = null;
-    // #19: ถ้าเปิดหน้าตั้งค่า (ถังขยะ) อยู่ ให้ดึงถังขยะสดด้วย (เครื่องอื่นลบ/กู้คืนแล้วเห็นทันที)
-    const refreshTrashIfOpen = () => {
-      if (stateRef.current.view === "manage") loadTrash();
-    };
-    const schedule = () => {
-      if (deb) clearTimeout(deb);
-      deb = setTimeout(() => {
-        refreshRecords();
-        refreshTrashIfOpen();
-      }, 400);
-    };
-
-    const unsub = subscribeIncidents(cfg, schedule);
-
-    // กันสัญญาณหลุด (โน้ตบุ๊กพับจอ / เน็ตวืบ) — กลับมาที่แท็บ/เน็ตกลับมา = ดึงข้อมูลใหม่ + ลองส่งคิวที่ค้าง
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        refreshRecords();
-        refreshTrashIfOpen();
-        flushPending();
-      }
-    };
-    const onOnline = () => {
-      refreshRecords();
-      refreshTrashIfOpen();
-      flushPending();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("online", onOnline);
-
-    return () => {
-      if (deb) clearTimeout(deb);
-      unsub();
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("online", onOnline);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, state.cfg.url, state.cfg.key, refreshRecords, flushPending, loadTrash]);
-
-  // ---------- Realtime คลังยา: มีคนเพิ่ม/แก้ยาในระบบ → ทุกเครื่องเห็นเองไม่ต้องรีเฟรช ----------
-  useEffect(() => {
-    if (!mounted) return;
-    const cfg = state.cfg;
-    if (!isConfigured(cfg)) return;
-    let deb: ReturnType<typeof setTimeout> | null = null;
-    const schedule = () => {
-      if (deb) clearTimeout(deb);
-      deb = setTimeout(() => refreshDrugs(), 500);
-    };
-    const unsub = subscribeDrugs(cfg, schedule);
-    // กันสัญญาณหลุด — กลับมาที่แท็บ / เน็ตกลับมา = ดึงคลังยาใหม่ด้วย
-    const onVis = () => {
-      if (document.visibilityState === "visible") refreshDrugs();
-    };
-    const onOnline = () => refreshDrugs();
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("online", onOnline);
-    return () => {
-      if (deb) clearTimeout(deb);
-      unsub();
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("online", onOnline);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted, state.cfg.url, state.cfg.key, refreshDrugs]);
+  // Realtime ข้ามเครื่อง (incidents + คลังยา) — Phase 3 Step 9 · ยกทั้ง 2 effect เป็น hook
+  useRealtime({ mounted, cfg: state.cfg, stateRef, refreshRecords, flushPending, loadTrash, refreshDrugs });
 
   // ล็อกไม่ให้เพจด้านหลังเลื่อน ตอนเปิด "ทุก popup" — กันสโครลเมาส์/นิ้วแล้วเพจหลังเลื่อน
   // ครอบคลุม: รายละเอียด/แก้ไขเคส · หน้าผลการส่ง · ป๊อปลบถาวร · ป๊อปสลับ ME↔DRP · ป๊อปคลังยา (แก้ไข/ประวัติ)
@@ -580,503 +304,6 @@ export default function MedDrpApp() {
   }, [state.view, mounted]);
 
 
-  // ---------- form mutations ----------
-  const setField = (k: keyof FormState, v: unknown) => {
-    setState((s) => {
-      const errors = { ...s.errors };
-      delete errors[k as string];
-      return { form: { ...s.form, [k]: v } as FormState, errors };
-    });
-    draftSoon();
-  };
-  // #12: เปลี่ยนจุดที่พบ — ถ้าไม่ใช่ IPD ให้ล้าง AN ทิ้ง (กันค่า AN ค้างติดเคสที่ไม่ใช่ IPD)
-  const setLocation = (v: string) => {
-    setState((s) => {
-      const errors = { ...s.errors };
-      delete errors.location;
-      const form = { ...s.form, location: v } as FormState;
-      if (v !== IPD_LOCATION) {
-        form.an = "";
-        delete errors.an;
-      }
-      return { form, errors };
-    });
-    draftSoon();
-  };
-  // ยา HAD จาก drugFlatLine จะมี "(HAD)" ต่อท้าย → ใช้ตรวจว่ายังมียา HAD เหลือในรายการไหม
-  const hasHadDrug = (drugs?: string[]) => (drugs || []).some((x) => /\(HAD\)/.test(String(x)));
-  // #13: ถ้าธง High-alert ถูกติดอัตโนมัติจากยา HAD แล้วยา HAD ถูกลบ/แก้ออกจนไม่เหลือ → ปลดธงให้ (แต่ถ้าผู้ใช้ติ๊กเอง hadAuto=false จะไม่แตะ)
-  const clearAutoHad = (s: AppState, form: FormState) => {
-    if (s.hadAuto && !hasHadDrug(form.drugs)) {
-      form.high_alert = false;
-      return false;
-    }
-    return s.hadAuto;
-  };
-  // จัด drug_ids ให้ยาวเท่า drugs เสมอ (เผื่อร่างเก่า/ฟอร์มไม่มี)
-  const alignIds = (ids: (number | null)[], len: number): (number | null)[] => {
-    const a = ids.slice();
-    while (a.length < len) a.push(null);
-    return a;
-  };
-  const setDrugAt = (i: number, v: string) => {
-    setState((s) => {
-      const d = (s.form.drugs || [""]).slice();
-      d[i] = v;
-      const ids = alignIds(s.form.drug_ids || [], d.length);
-      ids[i] = null; // พิมพ์เอง = ไม่ผูกรหัสยาแล้ว (Phase 2)
-      const form = { ...s.form, drugs: d, drug_ids: ids } as FormState;
-      return { form, hadAuto: clearAutoHad(s, form) };
-    });
-    draftSoon();
-  };
-  const addDrug = () => {
-    setState((s) => ({ form: { ...s.form, drugs: [...(s.form.drugs || [""]), ""], drug_ids: [...(s.form.drug_ids || []), null] } }));
-    draftSoon();
-  };
-  // เลือกยาจากรายการ suggest → ใส่เป็นข้อความบรรทัดเดียว + ผูกรหัสยา (id) + ปิด suggest
-  const pickDrug = (i: number, d: Drug) => {
-    setState((s) => {
-      const arr = (s.form.drugs || [""]).slice();
-      arr[i] = drugFlatLine(d);
-      const ids = alignIds(s.form.drug_ids || [], arr.length);
-      ids[i] = d.id; // ผูกรหัสยา → เปลี่ยนชื่อยาในคลังแล้วเคสตามทั้งหมด + Dashboard ไม่นับซ้ำ
-      const form = { ...s.form, drugs: arr, drug_ids: ids } as FormState;
-      let hadAuto = s.hadAuto;
-      // ยา HAD (High Alert Drug) จากคลังยา → ติดธง High-alert ให้อัตโนมัติ (ผู้ใช้ปลดเองได้ถ้าไม่ต้องการ)
-      if (d.had) {
-        form.high_alert = true;
-        hadAuto = true;
-      } else {
-        hadAuto = clearAutoHad(s, form); // เปลี่ยนเป็นยาไม่ HAD → ถ้าธงมาจาก auto และไม่เหลือ HAD ให้ปลด
-      }
-      return { form, hadAuto, drugSug: null };
-    });
-    draftSoon();
-  };
-  const removeDrug = (i: number) => {
-    setState((s) => {
-      const d = (s.form.drugs || [""]).slice();
-      const ids = alignIds(s.form.drug_ids || [], d.length);
-      d.splice(i, 1);
-      ids.splice(i, 1);
-      if (!d.length) {
-        d.push("");
-        ids.push(null);
-      }
-      const form = { ...s.form, drugs: d, drug_ids: ids } as FormState;
-      return { form, hadAuto: clearAutoHad(s, form) };
-    });
-    draftSoon();
-  };
-  // ติ๊กธง High-alert เอง → ถือเป็นการเลือกด้วยตัวเอง (ปลด hadAuto เพื่อไม่ให้ระบบมาปลดธงให้ทีหลัง)
-  const toggleHighAlert = () => {
-    setState((s) => ({ form: { ...s.form, high_alert: !s.form.high_alert }, hadAuto: false }));
-    draftSoon();
-  };
-  const toggleNature = (k: string) => {
-    setState((s) => {
-      const cur = Array.isArray(s.form.error_nature) ? s.form.error_nature.slice() : [];
-      const i = cur.indexOf(k);
-      if (i >= 0) cur.splice(i, 1);
-      else cur.push(k);
-      const form = { ...s.form, error_nature: cur } as FormState;
-      // #14: เลิกเลือก "อื่น ๆ" → ล้างข้อความระบุทิ้ง (กันข้อความค้างติดเคสทั้งที่ไม่ได้เลือกอื่น ๆ แล้ว)
-      if (!cur.includes("อื่น ๆ")) form.error_nature_other = "";
-      const errors = { ...s.errors };
-      delete errors.error_nature;
-      delete errors.error_nature_other;
-      return { form, errors };
-    });
-    draftSoon();
-  };
-  // หน่วยงานต้นเหตุ (เลือกหลายอัน · ใช้ทั้ง Med/DRP) — เลิกเลือก "อื่น ๆ" ล้างข้อความระบุ
-  const toggleSourceUnit = (k: string) => {
-    setState((s) => {
-      const cur = Array.isArray(s.form.source_units) ? s.form.source_units.slice() : [];
-      const i = cur.indexOf(k);
-      if (i >= 0) cur.splice(i, 1);
-      else cur.push(k);
-      const form = { ...s.form, source_units: cur } as FormState;
-      if (!cur.includes("อื่น ๆ")) form.source_unit_other = "";
-      const errors = { ...s.errors };
-      delete errors.source_units;
-      delete errors.source_unit_other;
-      return { form, errors };
-    });
-    draftSoon();
-  };
-  const toggleErrType = (k: string) => {
-    setState((s) => {
-      const cur = Array.isArray(s.form.error_type) ? s.form.error_type.slice() : s.form.error_type ? [s.form.error_type] : [];
-      const i = cur.indexOf(k);
-      if (i >= 0) cur.splice(i, 1);
-      else cur.push(k);
-      return { form: { ...s.form, error_type: cur } };
-    });
-    draftSoon();
-  };
-  const onAttachFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target && e.target.files && e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const img = new window.Image();
-      img.onload = () => {
-        const max = 1000;
-        let w = img.width,
-          h = img.height;
-        if (w > max || h > max) {
-          const r = Math.min(max / w, max / h);
-          w = Math.round(w * r);
-          h = Math.round(h * r);
-        }
-        const c = document.createElement("canvas");
-        c.width = w;
-        c.height = h;
-        c.getContext("2d")!.drawImage(img, 0, 0, w, h);
-        setField("attachment", c.toDataURL("image/jpeg", 0.7));
-      };
-      img.src = reader.result as string;
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // ---------- save new ----------
-  const save = async () => {
-    if (savingRef.current) return; // #1 กันกดปุ่มบันทึกซ้ำระหว่างกำลังส่ง (กันได้เคสซ้ำ)
-    savingRef.current = true;
-    unlockAudio(); // ปลดล็อกเสียงในจังหวะกดปุ่ม (เผื่อผลออกมาไม่สำเร็จ จะได้มีเสียงเตือน)
-    const f = stateRef.current.form,
-      type = stateRef.current.type;
-    const errs = validateIncident(f, type);
-    if (Object.keys(errs).length) {
-      setState({ errors: errs });
-      flash("กรุณากรอกช่องที่จำเป็น (ไฮไลต์สีแดง)");
-      savingRef.current = false;
-      return;
-    }
-    setState({ saving: true, errors: {} });
-    // จับคู่ข้อความยา + รหัสยา (drug_ids) ให้ตรง index แล้วค่อยกรองช่องว่างออกพร้อมกัน (คงการผูก id)
-    const drugPairs = (f.drugs || [])
-      .map((x, i) => ({ text: String(x).trim(), id: (f.drug_ids || [])[i] ?? null }))
-      .filter((p) => p.text);
-    const drugsArr = drugPairs.map((p) => p.text);
-    const drugIdsArr = drugPairs.map((p) => p.id);
-    const rec: Incident = {
-      ...f,
-      type,
-      shift: shiftOf(f.occurred_time),
-      drugs: drugsArr,
-      drug_ids: drugIdsArr,
-      drug: drugsArr.join(", "),
-      // #15: AN เก็บในรูปแบบมาตรฐาน "YY-NNNNN" เสมอ (เผื่อกดบันทึกโดยยังไม่ blur ช่อง AN) · ไม่ใช่ IPD = ไม่เก็บ AN
-      an: f.location === IPD_LOCATION ? formatAn(f.an, f.occurred_at) : "",
-      id: uuid(), // UUID ที่ถูกต้องเสมอทุกเบราว์เซอร์ (แก้บั๊ก Safari กรอกแล้วไม่ขึ้นระบบ)
-      created_at: new Date().toISOString(),
-    };
-    // #6: เก็บลงเครื่อง + เพิ่มเข้า state + เข้าคิว "ก่อน" await เสมอ
-    //     (ถ้าปิดแท็บ/มี reconcile ระหว่างรอส่ง เคสจะยังอยู่ในคิว = แหล่งความจริง ไม่หาย)
-    const recs = [rec, ...stateRef.current.records];
-    writeList(REC_KEY, recs);
-    setState({ records: recs });
-    clearDraft();
-    enqueuePending([rec]);
-    // ส่งขึ้นระบบส่วนกลาง แล้ว "ยืนยันผลจริง" · สำเร็จค่อยเอาออกจากคิว
-    const cfg = stateRef.current.cfg;
-    let sent = true;
-    if (isConfigured(cfg)) sent = await pushIncident(cfg, rec);
-    if (sent) dequeuePending(rec.id);
-    setState({ saving: false, form: emptyForm(DEFAULT_REPORTER, { hn: "", reporter: f.reporter }), hadAuto: false, shiftAuto: true });
-    savingRef.current = false;
-    if (sent) {
-      setState({ result: "ok", resultRec: null }); // หน้าผล "ส่งสำเร็จ" เต็มจอ
-    } else {
-      // ยังอยู่ในคิว (auto-flush ทำงานต่อ) + หน้าผล "ส่งไม่สำเร็จ" (ตัวโต ไม่หายเอง) + สั่น/เสียงเตือน
-      setState({ result: "fail", resultRec: rec });
-      alertFail();
-    }
-  };
-
-  // กด "ส่งอีกครั้ง" จากหน้าผลที่ส่งไม่สำเร็จ — ส่งเคสเดิมซ้ำ (id เดิม = idempotent)
-  const resendResult = async () => {
-    const rec = stateRef.current.resultRec;
-    if (!rec || stateRef.current.resending) return;
-    unlockAudio();
-    setState({ resending: true });
-    const cfg = stateRef.current.cfg;
-    const ok = isConfigured(cfg) ? await pushIncident(cfg, rec) : true;
-    if (ok) {
-      dequeuePending(rec.id);
-      setState({ result: "ok", resultRec: null, resending: false });
-      refreshRecords();
-    } else {
-      setState({ resending: false });
-      alertFail(); // ยังไม่ไป → เตือนอีกรอบ
-    }
-  };
-
-  // ---------- ลบรายงาน (2 ชั้น) ----------
-  // ชั้น 1: ลบแบบซ่อน (ย้ายไปถังขยะ) — จากหน้ารายละเอียด · ยังกู้คืนได้
-  const doSoftDelete = async () => {
-    const rec = stateRef.current.detail;
-    if (!rec) return;
-    const cfg = stateRef.current.cfg;
-    if (isConfigured(cfg)) {
-      try {
-        await softDeleteIncident(cfg, rec.id);
-      } catch {
-        flash("ลบไม่สำเร็จ ลองใหม่อีกครั้ง");
-        return;
-      }
-    }
-    const recs = (stateRef.current.records || []).filter((r) => r.id !== rec.id);
-    writeList(REC_KEY, recs);
-    dequeuePending(rec.id); // #3: เอาออกจากคิวด้วย ไม่งั้น flushPending จะส่งกลับขึ้นระบบเป็นเคสใช้งาน (เด้งกลับ)
-    setState({ records: recs, detail: null, editMode: false, askDelete: false, showHistory: false });
-    flash("ย้ายไปถังขยะแล้ว ✓");
-    loadTrash();
-  };
-
-  // กู้คืนจากถังขยะ — กลับมาแสดงในรายการปกติ
-  const doRestore = async (id: string) => {
-    if (stateRef.current.trashBusy) return;
-    const cfg = stateRef.current.cfg;
-    setState({ trashBusy: true });
-    if (isConfigured(cfg)) {
-      try {
-        // #19: ถ้าเครื่องอื่นลบถาวรไปแล้ว restoreIncident จะคืน false (ไม่มีแถวให้กู้) → บอกตามจริง ไม่ขึ้น "กู้คืนแล้ว" หลอก
-        const ok = await restoreIncident(cfg, id);
-        if (!ok) {
-          setState({ trash: (stateRef.current.trash || []).filter((r) => r.id !== id), trashBusy: false });
-          flash("รายงานนี้ถูกลบถาวรไปแล้ว (กู้คืนไม่ได้)");
-          return;
-        }
-      } catch {
-        flash("กู้คืนไม่สำเร็จ ลองใหม่อีกครั้ง");
-        setState({ trashBusy: false });
-        return;
-      }
-    }
-    setState({ trash: (stateRef.current.trash || []).filter((r) => r.id !== id), trashBusy: false });
-    flash("กู้คืนรายงานแล้ว ✓");
-    refreshRecords();
-  };
-
-  // ชั้น 2: ลบถาวร — จากถังขยะ · ต้องพิมพ์ HN ยืนยันแล้วเท่านั้น (guard ที่ปุ่มด้วย)
-  const doHardDelete = async () => {
-    const t = stateRef.current.hardTarget;
-    if (!t || stateRef.current.trashBusy) return;
-    const cfg = stateRef.current.cfg;
-    setState({ trashBusy: true });
-    if (isConfigured(cfg)) {
-      try {
-        await hardDeleteIncident(cfg, t.id);
-      } catch {
-        flash("ลบถาวรไม่สำเร็จ ลองใหม่อีกครั้ง");
-        setState({ trashBusy: false });
-        return;
-      }
-    }
-    setState({
-      trash: (stateRef.current.trash || []).filter((r) => r.id !== t.id),
-      hardTarget: null,
-      hardInput: "",
-      trashBusy: false,
-    });
-    flash("ลบถาวรแล้ว");
-  };
-
-  // ---------- settings ----------
-  const saveCfg = () => {
-    try {
-      localStorage.setItem(CFG_KEY, JSON.stringify(stateRef.current.cfg));
-    } catch {}
-    flash("บันทึกการตั้งค่าแล้ว ✓");
-    loadRecords();
-  };
-
-  // ---------- edit ----------
-  // เปิดโหมดแก้ไข — normalize drugs/drug_ids ให้เป็น array พร้อมใช้ picker (Phase 3)
-  const startEdit = () =>
-    setState((s) => {
-      const det = s.detail!;
-      const drugs = det.drugs && det.drugs.length ? det.drugs.slice() : det.drug ? String(det.drug).split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean) : [];
-      if (!drugs.length) drugs.push("");
-      const ids = (det.drug_ids || []).slice();
-      while (ids.length < drugs.length) ids.push(null);
-      return { editMode: true, showHistory: false, efDrugSug: null, editForm: { ...det, drugs, drug_ids: ids } };
-    });
-  const cancelEdit = () => setState({ editMode: false });
-  const setEf = (k: string, v: unknown) => setState((s) => ({ editForm: { ...s.editForm, [k]: v } }));
-  // ช่องยาในโหมดแก้ไข (Phase 3) — ใช้ picker เดียวกับหน้ากรอก · ผูก drug_ids เหมือนกัน
-  const setEfDrugAt = (i: number, v: string) =>
-    setState((s) => {
-      const d = (s.editForm.drugs || [""]).slice();
-      d[i] = v;
-      const ids = alignIds(s.editForm.drug_ids || [], d.length);
-      ids[i] = null;
-      return { editForm: { ...s.editForm, drugs: d, drug_ids: ids } };
-    });
-  const addEfDrug = () =>
-    setState((s) => ({ editForm: { ...s.editForm, drugs: [...(s.editForm.drugs || [""]), ""], drug_ids: [...(s.editForm.drug_ids || []), null] } }));
-  const pickEfDrug = (i: number, d: Drug) =>
-    setState((s) => {
-      const arr = (s.editForm.drugs || [""]).slice();
-      arr[i] = drugFlatLine(d);
-      const ids = alignIds(s.editForm.drug_ids || [], arr.length);
-      ids[i] = d.id;
-      const ef2 = { ...s.editForm, drugs: arr, drug_ids: ids };
-      if (d.had) ef2.high_alert = true; // เลือกยา HAD → ติดธงให้
-      return { editForm: ef2, efDrugSug: null };
-    });
-  const removeEfDrug = (i: number) =>
-    setState((s) => {
-      const d = (s.editForm.drugs || [""]).slice();
-      const ids = alignIds(s.editForm.drug_ids || [], d.length);
-      d.splice(i, 1);
-      ids.splice(i, 1);
-      if (!d.length) {
-        d.push("");
-        ids.push(null);
-      }
-      return { editForm: { ...s.editForm, drugs: d, drug_ids: ids } };
-    });
-  // #12: โหมดแก้ไข — เปลี่ยนจุดที่พบเป็นไม่ใช่ IPD ให้ล้าง AN ทิ้งด้วย
-  const setEfLocation = (v: string) =>
-    setState((s) => ({ editForm: { ...s.editForm, location: v, ...(v !== IPD_LOCATION ? { an: "" } : {}) } }));
-  // #14: เลือกประเภท DRP — กดซ้ำ= ยกเลิก · เปลี่ยนออกจาก "อื่น ๆ" ให้ล้างข้อความระบุทิ้ง
-  const setDrpType = (k: string) => {
-    setState((s) => {
-      const next = s.form.drp_type === k ? "" : k;
-      const form = { ...s.form, drp_type: next } as FormState;
-      if (next !== "อื่น ๆ") form.drp_type_other = "";
-      const errors = { ...s.errors };
-      delete errors.drp_type;
-      delete errors.drp_type_other;
-      return { form, errors };
-    });
-    draftSoon();
-  };
-  // #2: หน้าแก้ไข error_type / error_nature เป็น "เลือกได้หลายอัน" (เดิมเป็น select อันเดียว → array หด เหลือค่าเดียว ข้อมูลหาย)
-  const efArr = (field: "error_type" | "error_nature" | "source_units"): string[] => {
-    const v = (stateRef.current.editForm || {})[field];
-    return Array.isArray(v) ? (v as string[]) : v ? [String(v)] : [];
-  };
-  const efToggleArr = (field: "error_type" | "error_nature" | "source_units", val: string) =>
-    setState((s) => {
-      const raw = s.editForm[field];
-      const cur = Array.isArray(raw) ? (raw as string[]) : raw ? [String(raw)] : [];
-      const next = cur.includes(val) ? cur.filter((x) => x !== val) : [...cur, val];
-      const ef2 = { ...s.editForm, [field]: next };
-      // "อื่น ๆ" ของ source_units — เลิกเลือกล้างข้อความระบุ
-      if (field === "source_units" && !next.includes("อื่น ๆ")) ef2.source_unit_other = "";
-      return { editForm: ef2 };
-    });
-  const saveEdit = async () => {
-    if (savingRef.current) return; // กันกดบันทึกซ้ำ
-    const ef = stateRef.current.editForm,
-      det = stateRef.current.detail!;
-    // #5: ตรวจช่องบังคับก่อนบันทึก (เหมือนหน้ากรอกใหม่) — กันลบข้อมูลจำเป็นทิ้งแล้วบันทึก
-    const errs = validateIncident(ef as unknown as Partial<FormState>, det.type);
-    if (Object.keys(errs).length) {
-      flash("กรุณากรอกช่องที่จำเป็นให้ครบก่อนบันทึก");
-      return;
-    }
-    savingRef.current = true;
-    const snap: Incident = { ...det };
-    delete snap.history;
-    snap.saved_at = new Date().toISOString();
-    // Phase 3: โหมดแก้ไขใช้ picker เลือกยาจากคลังแล้ว → เอา ข้อความ+รหัสยา (drug_ids) ที่ผูกไว้มาใช้ตรง ๆ (กรองช่องว่างพร้อมกัน)
-    const dPairs = (ef.drugs || []).map((x, i) => ({ text: String(x).trim(), id: (ef.drug_ids || [])[i] ?? null })).filter((p) => p.text);
-    const dArr = dPairs.map((p) => p.text);
-    const dIds = dPairs.map((p) => p.id);
-    const updated: Incident = {
-      ...(ef as Incident),
-      drugs: dArr,
-      drug_ids: dIds,
-      drug: dArr.join(", "),
-      shift: shiftOf(ef.occurred_time) || ef.shift || det.shift, // #24: ไม่ล้างเวรถ้าเคสไม่มีเวลา (เคสเก่า)
-      edited: true,
-      edited_at: new Date().toISOString(),
-      edit_count: (det.edit_count || 0) + 1,
-      history: [...(det.history || []), snap],
-    };
-    const recs = (stateRef.current.records || []).map((r) => (r.id === updated.id ? updated : r));
-    writeList(REC_KEY, recs);
-    setState({ records: recs, detail: updated, saving: true });
-    // #4: ยืนยันผลจริง + ลองซ้ำอัตโนมัติ (ไม่ขึ้น "บันทึกการแก้ไขแล้ว" หลอกอีกต่อไป)
-    const cfg = stateRef.current.cfg;
-    let ok = true;
-    if (isConfigured(cfg)) ok = await pushUpdate(cfg, updated);
-    setState({ saving: false, editMode: false });
-    savingRef.current = false;
-    if (ok) {
-      flash("บันทึกการแก้ไขและส่งขึ้นระบบเรียบร้อย ✓");
-    } else {
-      flash("บันทึกในเครื่องแล้ว แต่ยังไม่ขึ้นระบบส่วนกลาง — เปิดแก้ไขแล้วบันทึกอีกครั้งเมื่อเน็ตกลับมา");
-      alertFail();
-    }
-  };
-
-  // ---------- CSV export ----------
-  const exportCsv = (subset?: Incident[]) => {
-    const data = subset && subset.length != null ? subset : stateRef.current.records;
-    const cols = [
-      "type",
-      "occurred_at",
-      "occurred_time",
-      "shift",
-      "hn",
-      "location",
-      "an",
-      "error_type",
-      "error_nature",
-      "error_nature_other",
-      "source_units",
-      "source_unit_other",
-      "severity",
-      "drp_type",
-      "drp_type_other",
-      "intervention",
-      "outcome",
-      "drug",
-      "high_alert",
-      "lasa",
-      "detail",
-      "management",
-      "managed",
-      "pharmacist_only",
-      "cause",
-      "reporter",
-      "edited",
-      "edited_at",
-      "edit_count",
-      "created_at",
-    ];
-    const esc = (v: unknown) => {
-      let s = String(v == null ? "" : v);
-      if (/^[=+\-@]/.test(s)) s = "'" + s; // #18: กัน formula injection ใน Excel/Sheets (ช่องขึ้นต้น = + - @)
-      return '"' + s.replace(/"/g, '""') + '"';
-    };
-    // Phase 2: คอลัมน์ "drug" ใน CSV ใช้ชื่อล่าสุดจากรหัสยา (สอดคล้องกับที่แสดงบนหน้าจอ)
-    const rows = data.map((r) =>
-      cols
-        .map((c) => {
-          if (c === "drug") return esc(resolveDrugLines(r, drugsById).join(", ") || r.drug || "");
-          return esc((r as unknown as Record<string, unknown>)[c]);
-        })
-        .join(",")
-    );
-    const csv = cols.join(",") + "\n" + rows.join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "med_drp_export.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
 
   const setRF = (k: keyof RecordFilter, v: string) => setState((s) => ({ rf: { ...s.rf, [k]: v } }));
 
@@ -1088,14 +315,7 @@ export default function MedDrpApp() {
   const S = state;
   const f = S.form;
   const type = S.type;
-  // แผนที่ รหัสยา → ยาในคลังปัจจุบัน (Phase 2) — ใช้แปลงเคสให้แสดง/นับด้วย "ชื่อล่าสุด"
-  const drugsById = new Map<number, Drug>((S.drugs || []).map((d) => [d.id, d]));
   const orgName = ORG_NAME;
-
-  // ตัวเลือก dropdown ใช้ในโหมดแก้ไข (EditMode ยังอยู่ในไฟล์นี้) · value = ค่าที่เก็บ · label = ป้ายที่โชว์
-  const drpTypeOpts = DRP_TYPES.map((t) => ({ value: t.key, label: t.label || t.key }));
-  const severityOpts = SEVERITY.map((s) => s.code);
-  const outcomeOpts = OUTCOMES.map((o) => ({ value: o.key, label: o.label }));
 
   const cfgConfigured = isConfigured(S.cfg);
 
