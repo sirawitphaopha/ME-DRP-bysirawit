@@ -71,7 +71,11 @@ import RecordsView from "@/components/views/RecordsView";
 import DetailModal from "@/components/views/DetailModal";
 import FormView from "@/components/views/FormView";
 import ResultOverlay from "@/components/views/ResultOverlay";
-import { dashRecs } from "@/components/views/dashData";
+import { useAudioAlert } from "@/components/hooks/useAudioAlert";
+import { useDraft } from "@/components/hooks/useDraft";
+import { useToast } from "@/components/hooks/useToast";
+import { useDrugsAdmin } from "@/components/hooks/useDrugsAdmin";
+import { useDashboard } from "@/components/hooks/useDashboard";
 import { dedupUnsynced, formatAn, matchSearch, readList, validateIncident, writeList } from "@/lib/records";
 import {
   INPUT_BASE,
@@ -162,9 +166,6 @@ export default function MedDrpApp() {
 
   const stateRef = useRef(state);
   stateRef.current = state;
-  const ivRef = useRef<Record<number, ReturnType<typeof setInterval> | null>>({});
-  const tRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dtRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const setState = useCallback((u: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => {
     setS((prev) => {
@@ -173,37 +174,31 @@ export default function MedDrpApp() {
     });
   }, []);
 
-  // ---------- draft ----------
-  const saveDraft = useCallback(() => {
-    try {
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ type: stateRef.current.type, form: stateRef.current.form }));
-    } catch {}
-  }, []);
-  const clearDraft = useCallback(() => {
-    try {
-      localStorage.removeItem(DRAFT_KEY);
-    } catch {}
-  }, []);
-  const draftSoon = useCallback(() => {
-    if (dtRef.current) clearTimeout(dtRef.current);
-    dtRef.current = setTimeout(saveDraft, 120);
-  }, [saveDraft]);
-  const hasDraftContent = (f: FormState | undefined) =>
-    !!(
-      f &&
-      ((f.error_type && f.error_type.length) ||
-        f.drp_type ||
-        f.hn ||
-        f.detail ||
-        f.management ||
-        f.cause ||
-        f.severity || // #16: กรอกแค่ความรุนแรง/การแก้ไข/ผลตอบรับ/AN ก็ถือว่ามีร่าง (เดิมร่างหายถ้ายังไม่กรอกช่องหลัก)
-        f.intervention ||
-        f.outcome ||
-        f.an ||
-        (f.error_nature && f.error_nature.length) ||
-        (f.drugs && f.drugs.some((x) => x && String(x).trim())))
-    );
+  // เสียง + สั่นเตือน (ตอนส่งไม่สำเร็จ) — Phase 3 Step 1 · ยกเป็น hook (iOS ปลดล็อกเสียงในจังหวะกดปุ่ม)
+  const { unlockAudio, alertFail } = useAudioAlert();
+  // ร่างอัตโนมัติ — Phase 3 Step 2 · ยกเป็น hook (auto-save draft · hook จัดการ timer/cleanup เอง)
+  const { clearDraft, draftSoon, hasDraftContent } = useDraft(stateRef, DRAFT_KEY);
+  // ข้อความเด้ง (toast) — Phase 3 Step 3 · ยกเป็น hook
+  const { flash } = useToast(setState);
+  // จัดการคลังยา (CRUD + ป๊อป + กรอง/เรียง/CSV) — Phase 3 Step 4 · ยกเป็น hook
+  const {
+    refreshDrugs,
+    openAddDrug,
+    openEditDrug,
+    setDrugField,
+    requestCloseDrugEdit,
+    forceCloseDrugEdit,
+    openDrugLog,
+    saveDrug,
+    setDrugHidden,
+    toggleDrugFilter,
+    clearDrugFilters,
+    toggleDrugSort,
+    getFilteredDrugs,
+    exportDrugsCsv,
+  } = useDrugsAdmin({ setState, stateRef }, flash);
+  // Dashboard — ช่วงเวลา + อนิเมชัน KPI — Phase 3 Step 5 · ยกเป็น hook (hook จัดการ interval/cleanup เอง)
+  const { animateKpi, animateKpis, setDashPreset } = useDashboard({ setState, stateRef });
 
   // สลับประเภทฟอร์ม ME↔DRP · เคลียร์ค่าเดิม (เก็บแค่ HN/ผู้รายงาน) แล้วเริ่มฟอร์มประเภทใหม่
   const doSwitchType = (target: "med" | "drp") => {
@@ -219,51 +214,6 @@ export default function MedDrpApp() {
     }
     doSwitchType(target);
   };
-
-  // ---------- toast ----------
-  const flash = useCallback((msg: string) => {
-    setState({ toast: msg });
-    if (tRef.current) clearTimeout(tRef.current);
-    tRef.current = setTimeout(() => setState({ toast: "" }), 2200);
-  }, [setState]);
-
-  // ---------- dashboard range ----------
-  const computeKpiTargets = (s: AppState) => {
-    const recs = dashRecs(s);
-    const now = new Date();
-    const curKey = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
-    return [
-      recs.length,
-      recs.filter((r) => (r.occurred_at || "").slice(0, 7) === curKey).length,
-      recs.filter((r) => r.type === "med").length,
-      recs.filter((r) => r.type === "drp").length,
-    ];
-  };
-  const animateKpi = useCallback(
-    (i: number, target: number) => {
-      if (ivRef.current[i]) clearInterval(ivRef.current[i]!);
-      const dur = 680;
-      const start = Date.now();
-      ivRef.current[i] = setInterval(() => {
-        const p = Math.min(1, (Date.now() - start) / dur);
-        const ease = 1 - Math.pow(1 - p, 3);
-        setState((s) => {
-          const a = (s.kpiAnim || [0, 0, 0, 0]).slice();
-          a[i] = target * ease;
-          return { kpiAnim: a };
-        });
-        if (p >= 1) {
-          clearInterval(ivRef.current[i]!);
-          ivRef.current[i] = null;
-        }
-      }, 24);
-    },
-    [setState]
-  );
-  const animateKpis = useCallback(() => {
-    computeKpiTargets(stateRef.current).forEach((t, i) => animateKpi(i, t));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [animateKpi]);
 
   // ---------- records I/O + คิวส่งขึ้นระบบ ----------
   const flushingRef = useRef(false);
@@ -372,159 +322,6 @@ export default function MedDrpApp() {
     } catch {}
   }, [setState]);
 
-  // ดึงคลังยาใหม่ทั้งชุด → อัปเดต state + cache ในเครื่อง (เฉพาะตอนข้อมูลต่างจริง กัน re-render เปล่า)
-  // ใช้ตอน mount + ตอน realtime แจ้งว่ามีคนแก้คลังยา + ตอนสลับกลับมาที่แอป/เน็ตกลับมา
-  const refreshDrugs = useCallback(async () => {
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) return;
-    try {
-      const list = await fetchDrugs(cfg);
-      if (!list.length) return; // ดึงพลาด/ว่าง → คงคลังยาเดิมไว้ (ไม่ล้างทิ้ง)
-      if (JSON.stringify(list) === JSON.stringify(stateRef.current.drugs || [])) return;
-      setState({ drugs: list });
-      try {
-        localStorage.setItem("meddrp_drugs", JSON.stringify({ list, ts: Date.now() }));
-      } catch {}
-    } catch {}
-  }, [setState]);
-
-  // ---------- หน้า "คลังยา" (จัดการ master data) ----------
-  const openAddDrug = () => {
-    const blank = { had: false, renal: false };
-    setState({ drugEdit: { ...blank }, drugEditOrig: { ...blank }, drugEditNew: true, drugEditConfirmClose: false });
-  };
-  const openEditDrug = (d: Drug) => setState({ drugEdit: { ...d }, drugEditOrig: { ...d }, drugEditNew: false, drugEditConfirmClose: false });
-  const setDrugField = (k: keyof Drug, v: unknown) => setState((s) => ({ drugEdit: { ...(s.drugEdit || {}), [k]: v } }));
-  // แก้ค้างไหม (เทียบกับตอนเปิด)
-  const drugEditDirty = () => JSON.stringify(stateRef.current.drugEdit || {}) !== JSON.stringify(stateRef.current.drugEditOrig || {});
-  // ขอปิดป๊อป — ถ้าแก้ค้างต้องยืนยันก่อน (กันเผลอปิดแล้วที่แก้หาย) · กดที่ว่างนอกป๊อปไม่ปิดอยู่แล้ว
-  const requestCloseDrugEdit = () => {
-    if (drugEditDirty()) setState({ drugEditConfirmClose: true });
-    else setState({ drugEdit: null, drugEditOrig: null });
-  };
-  const forceCloseDrugEdit = () => setState({ drugEdit: null, drugEditOrig: null, drugEditConfirmClose: false });
-  // เปิดประวัติการแก้ไขของยา
-  const openDrugLog = async (d: Drug) => {
-    setState({ drugLog: { drug: d, entries: [] }, drugLogLoading: true });
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) {
-      setState({ drugLogLoading: false });
-      return;
-    }
-    try {
-      const entries = await fetchDrugAudit(cfg, d.id);
-      // กันกรณีผู้ใช้ปิดไปแล้ว/เปิดยาอื่นก่อนโหลดเสร็จ
-      if (stateRef.current.drugLog && stateRef.current.drugLog.drug.id === d.id) setState({ drugLog: { drug: d, entries }, drugLogLoading: false });
-    } catch {
-      setState({ drugLogLoading: false });
-    }
-  };
-  const saveDrug = async () => {
-    const d = stateRef.current.drugEdit;
-    const isNew = stateRef.current.drugEditNew;
-    if (!d || stateRef.current.drugBusy) return;
-    if (!String(d.generic || "").trim()) {
-      flash("กรุณากรอกชื่อยา (generic)");
-      return;
-    }
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) {
-      flash("ยังไม่ได้เชื่อมต่อ Supabase");
-      return;
-    }
-    setState({ drugBusy: true });
-    try {
-      if (isNew) await insertDrug(cfg, d);
-      else await updateDrug(cfg, d as Drug);
-    } catch {
-      setState({ drugBusy: false });
-      flash("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
-      return;
-    }
-    await refreshDrugs();
-    setState({ drugBusy: false, drugEdit: null, drugEditOrig: null, drugEditConfirmClose: false });
-    flash(isNew ? "เพิ่มยาแล้ว ✓" : "บันทึกยาแล้ว ✓");
-  };
-  // ซ่อน / เอากลับมาแสดง — ผ่าน updateDrug (trigger จะเก็บ log ให้) · ลบจริงไม่ได้จากเว็บ
-  const setDrugHidden = async (d: Drug, hidden: boolean) => {
-    if (stateRef.current.drugBusy) return;
-    const cfg = stateRef.current.cfg;
-    if (!isConfigured(cfg)) {
-      flash("ยังไม่ได้เชื่อมต่อ Supabase");
-      return;
-    }
-    setState({ drugBusy: true });
-    try {
-      await updateDrug(cfg, { ...d, hidden });
-    } catch {
-      setState({ drugBusy: false });
-      flash(hidden ? "ซ่อนไม่สำเร็จ ลองใหม่อีกครั้ง" : "เอากลับไม่สำเร็จ ลองใหม่อีกครั้ง");
-      return;
-    }
-    await refreshDrugs();
-    setState({ drugBusy: false });
-    flash(hidden ? "ซ่อนยาแล้ว · ดูได้ที่ตั้งค่า" : "เอายากลับมาแสดงแล้ว ✓");
-  };
-  // ตัวกรองเลือกหลายอัน (กดซ้ำ = ยกเลิก) + ล้างค่า + เรียงตามคอลัมน์ (กดหัวคอลัมน์ · กดซ้ำสลับ asc/desc)
-  const toggleDrugFilter = (key: string) =>
-    setState((s) => {
-      const cur = s.drugFilters || [];
-      return { drugFilters: cur.includes(key) ? cur.filter((x) => x !== key) : [...cur, key] };
-    });
-  const clearDrugFilters = () => setState({ drugFilters: [] });
-  const toggleDrugSort = (key: string) =>
-    setState((s) => {
-      const cur = s.drugSort;
-      if (cur && cur.key === key) return { drugSort: { key, dir: cur.dir === "asc" ? "desc" : "asc" } };
-      return { drugSort: { key, dir: "asc" } };
-    });
-  // ตัวกรอง + ค้นหา (ใช้ทั้ง render และปุ่มส่งออก) — หน้าคลังยาโชว์เฉพาะยาที่ไม่ถูกซ่อน
-  // ตัวกรองแบบหลายอัน: รูปแบบ (form:*) รวมกันแบบ OR · HAD / Preg D-X เป็นเงื่อนไข AND เพิ่ม
-  const drugMatchesFilters = (d: Drug, filters: string[]): boolean => {
-    if (!filters.length) return true;
-    const forms = filters.filter((f) => f.startsWith("form:")).map((f) => f.slice(5));
-    if (forms.length && !forms.includes(d.form || "")) return false;
-    if (filters.includes("had") && !d.had) return false;
-    if (filters.includes("pregDX") && !(d.preg === "D" || d.preg === "X")) return false;
-    return true;
-  };
-  const sortDrugs = (arr: Drug[], sort: AppState["drugSort"]): Drug[] => {
-    const key = sort?.key || "generic";
-    const mul = sort?.dir === "desc" ? -1 : 1;
-    return arr.slice().sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[key];
-      const bv = (b as unknown as Record<string, unknown>)[key];
-      if (key === "id") return (((av as number) || 0) - ((bv as number) || 0)) * mul;
-      if (key === "had") return ((av ? 1 : 0) - (bv ? 1 : 0)) * mul;
-      return String(av ?? "").localeCompare(String(bv ?? ""), "th") * mul;
-    });
-  };
-  const getFilteredDrugs = (s: AppState): Drug[] => {
-    const q = (s.drugSearch || "").trim().toLowerCase();
-    const filtered = (s.drugs || [])
-      .filter((d) => !d.hidden)
-      .filter((d) => drugMatchesFilters(d, s.drugFilters))
-      .filter((d) => !q || drugSearchText(d).includes(q));
-    return sortDrugs(filtered, s.drugSort);
-  };
-  const exportDrugsCsv = () => {
-    const list = getFilteredDrugs(stateRef.current);
-    const cols = ["id", "generic", "strength", "unit", "percent", "form", "route", "release", "brand", "had", "preg", "renal"];
-    const esc = (v: unknown) => {
-      let s = String(v == null ? "" : v);
-      if (/^[=+\-@]/.test(s)) s = "'" + s; // กัน formula injection ใน Excel/Sheets
-      return '"' + s.replace(/"/g, '""') + '"';
-    };
-    const rows = list.map((d) => cols.map((c) => esc((d as unknown as Record<string, unknown>)[c])).join(","));
-    const csv = cols.join(",") + "\n" + rows.join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "drugs_export.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
 
   // ---------- mount ----------
   useEffect(() => {
@@ -570,11 +367,7 @@ export default function MedDrpApp() {
         .catch(() => {});
     }
     if (restored) setTimeout(() => flash("กู้คืนร่างที่ค้างไว้ ✓"), 400);
-    return () => {
-      Object.values(ivRef.current).forEach((iv) => iv && clearInterval(iv));
-      if (tRef.current) clearTimeout(tRef.current);
-      if (dtRef.current) clearTimeout(dtRef.current);
-    };
+    // timer/interval cleanup ย้ายไปอยู่ใน hook แต่ละตัวแล้ว (useDraft/useToast/useDashboard)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -949,45 +742,6 @@ export default function MedDrpApp() {
     reader.readAsDataURL(file);
   };
 
-  // ---------- เสียง + สั่นเตือน (ตอนส่งไม่สำเร็จ) ----------
-  // iOS ต้องปลดล็อกเสียง "ในจังหวะกดปุ่ม" (user gesture) → เรียก unlockAudio() ตอนต้น save/resend
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const unlockAudio = () => {
-    try {
-      const w = window as unknown as { AudioContext?: typeof AudioContext; webkitAudioContext?: typeof AudioContext };
-      const Ctor = w.AudioContext || w.webkitAudioContext;
-      if (!Ctor) return;
-      if (!audioCtxRef.current) audioCtxRef.current = new Ctor();
-      if (audioCtxRef.current.state === "suspended") audioCtxRef.current.resume().catch(() => {});
-    } catch {}
-  };
-  const alertFail = () => {
-    // สั่น — ได้เฉพาะ Android (iOS/Safari ไม่รองรับ navigator.vibrate)
-    try {
-      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") navigator.vibrate([220, 90, 220]);
-    } catch {}
-    // เสียงบี๊บ 2 จังหวะ (สังเคราะห์เอง ไม่ต้องมีไฟล์เสียง)
-    try {
-      const ctx = audioCtxRef.current;
-      if (!ctx) return;
-      if (ctx.state === "suspended") ctx.resume().catch(() => {});
-      const now = ctx.currentTime;
-      [0, 0.28].forEach((t) => {
-        const osc = ctx.createOscillator();
-        const g = ctx.createGain();
-        osc.type = "square";
-        osc.frequency.value = 640;
-        g.gain.setValueAtTime(0.0001, now + t);
-        g.gain.exponentialRampToValueAtTime(0.22, now + t + 0.02);
-        g.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.2);
-        osc.connect(g);
-        g.connect(ctx.destination);
-        osc.start(now + t);
-        osc.stop(now + t + 0.22);
-      });
-    } catch {}
-  };
-
   // ---------- save new ----------
   const save = async () => {
     if (savingRef.current) return; // #1 กันกดปุ่มบันทึกซ้ำระหว่างกำลังส่ง (กันได้เคสซ้ำ)
@@ -1325,7 +1079,6 @@ export default function MedDrpApp() {
   };
 
   const setRF = (k: keyof RecordFilter, v: string) => setState((s) => ({ rf: { ...s.rf, [k]: v } }));
-  const setDashPreset = (p: DashRange["preset"]) => setState((s) => ({ dashRange: { ...s.dashRange, preset: p } }));
 
   if (!mounted) return <div style={{ minHeight: "100vh" }} />;
 

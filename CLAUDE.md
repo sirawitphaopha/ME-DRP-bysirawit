@@ -33,7 +33,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.12.4) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.12.5) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -67,9 +67,13 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 > วิธี: root provide `{S, isMobile, setState, clock, ...handlers, renderReporterDD, drugPickerUI}` ครั้งเดียว
 > (ctx object ก่อน return) · ค่า derived หนัก ๆ ยกเป็น pure `compute*Data(S)` (return type อนุมานเอง) ·
 > state ยังเป็นก้อนเดียว (setState merge เดิม) · **pure move ไม่เปลี่ยนพฤติกรรม** ·
-> **`MedDrpApp.tsx` เหลือ ~1,850 บรรทัด (จาก 5,202 · −64%)** = handlers/effects/nav/Context (สมองกลาง) ·
+> **`MedDrpApp.tsx` เหลือ ~1,600 บรรทัด (จาก 5,202 · −69%)** = handlers/effects/nav/Context (สมองกลาง) ·
 > `renderReporterDD`+`drugPickerUI` ยังอยู่ในราก (ใช้ร่วม Form+Edit · ส่งผ่าน Context) ·
-> **Phase 3 (ยังไม่ทำ · เลือกไว้เป็นอนาคต):** ยก handler เป็น custom hooks + `useMemo` derived
+> **Phase 3 Step 1–5 (เสร็จ v0.9.12.5 · เลือกทำชุดปลอดภัยก่อน):** ยก handler อิสระเป็น custom hooks ใน
+> `components/hooks/*.ts` — `useAudioAlert` (เสียง/สั่น) · `useDraft` (ร่างอัตโนมัติ) · `useToast` (flash) ·
+> `useDrugsAdmin` (CRUD คลังยา + กรอง/CSV) · `useDashboard` (ช่วงเวลา + KPI animate) · แต่ละ hook รับ
+> `core={setState,stateRef}` (+flash) · จัดการ timer/cleanup เอง (ย้าย dtRef/tRef/ivRef ออกจาก mount effect) ·
+> **Phase 3 Step 6–9 (ยังไม่ทำ · อนาคต):** `useFormMutations`/`useEditForm`/`useRecords`/`useRealtime` (ส่วนลึก เสี่ยงสูง)
 
 - **`components/MedDrpApp.tsx`** = แกนกลางของแอป (client component · หลัง Phase 2 เหลือ ~1,850 บรรทัด · จาก 5,202)
   - พอร์ตตรงจากคลาส `DCLogic` ของดีไซน์: `state` เดียว + `setState(u)` helper ที่ merge partial (เลียนแบบ React class `this.setState`)
