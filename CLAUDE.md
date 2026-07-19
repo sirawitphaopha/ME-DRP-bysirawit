@@ -33,7 +33,7 @@
 
 ## ภาพรวม
 
-แอป **Med Error & DRP** (v0.9.12.3) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
+แอป **Med Error & DRP** (v0.9.12.4) สำหรับห้องยา OPD — Next.js 15 (App Router) + React 19 + TypeScript,
 เชื่อม Supabase, deploy บน Cloudflare Workers (OpenNext) ภาษา UI เป็น **ไทย** (ศัพท์เทคนิคอังกฤษ)
 
 โปรเจกต์นี้เกิดจากการ implement ดีไซน์ที่ทำใน Claude Design:
@@ -60,15 +60,18 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 > `lib/styles.ts` (ปุ่ม/สไตล์: chip/nav/INPUT_*/editLabel ฯลฯ) · `lib/records.ts` (ฟังก์ชัน
 > บริสุทธิ์: readList/writeList/dedupUnsynced/formatAn/matchSearch/validateIncident) ·
 > `components/MedDrpApp.types.ts` (`interface AppState`) — **pure move ไม่เปลี่ยนพฤติกรรม** ·
-> **Phase 2 (กำลังทำ · ผ่าน Context `components/MedDrpContext.tsx` → `useMedDrp()`):** แยก view
-> เป็น `components/views/*.tsx` ทีละหน้า · **เสร็จแล้ว (v0.9.12.3):** `SettingsView` · `ManageView` ·
-> `DrugsAdminView` (+ `DrugEditModal`, `DrugLogModal`) · `DashboardView` (+ `dashData.ts` = `computeDashData`/
-> `dashRecs`) · `RecordsView` (+ `recordsData.ts` = `computeRecordsData`) · **ยังเหลือ:** Detail+Edit / Form ·
-> วิธี: root provide `{S, isMobile, setState, ...handlers}` ครั้งเดียว (ctx object ก่อน return · ขยาย
-> field ทีละหน้า) · ค่า derived หนัก ๆ ยกเป็น pure `compute*Data(S)` ใน `views/*Data.ts` (return type อนุมานเอง) ·
-> state ยังเป็นก้อนเดียว (setState merge เดิม) · **pure move ไม่เปลี่ยนพฤติกรรม**
+> **Phase 2 (เสร็จครบ v0.9.12.4 · ผ่าน Context `components/MedDrpContext.tsx` → `useMedDrp()`):** แยก view
+> ทั้ง 6 หน้า + ป๊อป เป็น `components/views/*.tsx` — `FormView` · `DashboardView` (+`dashData.ts`) ·
+> `RecordsView` (+`recordsData.ts`) · `SettingsView` · `ManageView` · `DrugsAdminView` · `DetailModal`
+> (+โหมดแก้ไข, +`detailData.ts`) · `DrugEditModal` · `DrugLogModal` · `ResultOverlay` ·
+> วิธี: root provide `{S, isMobile, setState, clock, ...handlers, renderReporterDD, drugPickerUI}` ครั้งเดียว
+> (ctx object ก่อน return) · ค่า derived หนัก ๆ ยกเป็น pure `compute*Data(S)` (return type อนุมานเอง) ·
+> state ยังเป็นก้อนเดียว (setState merge เดิม) · **pure move ไม่เปลี่ยนพฤติกรรม** ·
+> **`MedDrpApp.tsx` เหลือ ~1,850 บรรทัด (จาก 5,202 · −64%)** = handlers/effects/nav/Context (สมองกลาง) ·
+> `renderReporterDD`+`drugPickerUI` ยังอยู่ในราก (ใช้ร่วม Form+Edit · ส่งผ่าน Context) ·
+> **Phase 3 (ยังไม่ทำ · เลือกไว้เป็นอนาคต):** ยก handler เป็น custom hooks + `useMemo` derived
 
-- **`components/MedDrpApp.tsx`** = แอปเกือบทั้งหมดในไฟล์เดียว (client component · หลัง Phase 2d เหลือ ~3,320 บรรทัด · จาก 5,202)
+- **`components/MedDrpApp.tsx`** = แกนกลางของแอป (client component · หลัง Phase 2 เหลือ ~1,850 บรรทัด · จาก 5,202)
   - พอร์ตตรงจากคลาส `DCLogic` ของดีไซน์: `state` เดียว + `setState(u)` helper ที่ merge partial (เลียนแบบ React class `this.setState`)
   - อ่านค่า state ปัจจุบันแบบ sync ผ่าน `stateRef.current` (สำหรับ async เช่น `save`, `saveEdit`, `loadRecords`)
   - ค่า derived (kpis, bars, breakdowns, recRows, detailRows, historyList) คำนวณในบอดี้ render — ตรงกับ `renderVals()` เดิม
