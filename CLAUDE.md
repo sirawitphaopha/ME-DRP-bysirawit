@@ -83,6 +83,41 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 > **`MedDrpApp.tsx` เหลือ ~824 บรรทัด (จาก 5,202 · −84%)** = state/refs · mount effect · effect เล็ก (matchMedia/clock/
 > scrollTo/kpi-anim/body-lock/backfill) · `renderReporterDD`+`drugPickerUI` · ประกอบ hooks → ctx + nav/return JSX
 
+### 🗺️ แผนผังไฟล์ (หาของแก้ตรงจุด · เลขวงเล็บ = จำนวนบรรทัดโดยประมาณ)
+
+```
+components/
+  MedDrpApp.tsx           (824)  🧠 แกนกลาง — state ก้อนเดียว + mount effect + นาฬิกา/จอมือถือ
+                                    + ประกอบ hooks → ส่งผ่าน Context + nav/สลับหน้า
+  MedDrpContext.tsx        (92)  🔌 provide {S,setState,...handlers,renderReporterDD,drugPickerUI} → useMedDrp()
+  MedDrpApp.types.ts       (57)  interface AppState                                      ← Phase 1
+  ui.tsx                  (168)  wrapper hover/focus (HButton/HInput/HSelect/...)
+
+  views/                         🖼 Phase 2 — 1 หน้าจอ = 1 ไฟล์ (view + *Data.ts = pure compute)
+    FormView.tsx          (808)  หน้ากรอก (Med/DRP · renderLocationField/renderSeverityField/...)
+    DashboardView.tsx     (434)  + dashData.ts       (374)  computeDashData(S)
+    DetailModal.tsx       (551)  + detailData.ts     (108)  ป๊อปรายละเอียด + โหมดแก้ไข
+    RecordsView.tsx       (260)  + recordsData.ts     (55)  หน้ารายงาน + ตัวกรอง
+    DrugsAdminView.tsx    (217)  หน้าคลังยา
+    SettingsView.tsx      (163)  หน้าเกี่ยวกับ  ·  ManageView.tsx (134) ตั้งค่า+ถังขยะ
+    DrugEditModal.tsx     (142)  ·  DrugLogModal.tsx (102)  ·  ResultOverlay.tsx (112)
+
+  hooks/                         ⚙️ Phase 3 — ตรรกะ/handler (แต่ละตัวรับ core={setState,stateRef})
+    useRecords.ts         (485)  ⭐ บันทึก/คิวส่ง(mutatePending/flushPending)/save/saveEdit/resendResult/ลบ/CSV
+    useFormMutations.ts   (216)  setField/toggle*/เลือกยา/สลับ ME↔DRP        (Step 6)
+    useDrugsAdmin.ts      (179)  CRUD คลังยา + กรอง/เรียง/CSV                  (Step 4)
+    useRealtime.ts         (91)  subscribe incidents+drugs + vis/online       (Step 9)
+    useEditForm.ts         (86)  โหมดแก้ไขเคส (startEdit/setEf/efArr/...)      (Step 7)
+    useDashboard.ts        (53)  ช่วงเวลา + KPI animate (Step 5) · useAudioAlert(44)/useDraft(44)/useToast(21)
+    core.ts (16) Core+alignIds  ·  keys.ts (6) storage keys (REC/CFG/DRAFT/PENDING)
+
+lib/
+  constants.ts (154) ค่าคงที่  ·  data.ts (308) Supabase client+subscribe  ·  helpers.ts (200)
+  records.ts (109) readList/writeList/formatAn/matchSearch/validateIncident  ← Phase 1
+  styles.ts (77) สไตล์ปุ่ม/ชิป/nav  ← Phase 1  ·  types.ts (137)  ·  style.ts (18) css()
+  seed.ts (เลิกใช้ · ข้อมูลจริงจาก Supabase)
+```
+
 - **`components/MedDrpApp.tsx`** = แกนกลางของแอป (client component · หลัง Phase 3 เหลือ ~824 บรรทัด · จาก 5,202 · −84%)
   - พอร์ตตรงจากคลาส `DCLogic` ของดีไซน์: `state` เดียว + `setState(u)` helper ที่ merge partial (เลียนแบบ React class `this.setState`)
   - อ่านค่า state ปัจจุบันแบบ sync ผ่าน `stateRef.current` (สำหรับ async เช่น `save`, `saveEdit`, `loadRecords`)

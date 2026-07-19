@@ -252,22 +252,60 @@ npm run cf:deploy    # build + deploy ขึ้น Cloudflare (ต้อง wran
 
 ## 📁 โครงสร้างโปรเจกต์
 
+> เดิม `MedDrpApp.tsx` เป็นไฟล์เดียว **5,202 บรรทัด** — ผ่าน refactor 3 เฟส (Phase 1 ยกของนิ่ง →
+> Phase 2 แยกหน้าจอ → Phase 3 แยก handler เป็น hooks) ตอนนี้เหลือ **824 บรรทัด (−84%)** ทำหน้าที่
+> เป็น "สมองกลาง" คุม state แล้วประกอบชิ้นส่วนเข้าด้วยกัน · เลขในวงเล็บ = จำนวนบรรทัดโดยประมาณ
+
 ```
-app/                     # Next.js App Router (layout, page, globals.css)
+app/                              # Next.js App Router
+  layout.tsx · page.tsx · globals.css
+
 components/
-  MedDrpApp.tsx          # แอปหลักทั้งหมด (state + ทุกหน้า + modal) — พอร์ตจากดีไซน์ DC
-  ui.tsx                 # คอมโพเนนต์ hover/focus (HButton/HInput/HSelect/...)
-lib/
-  constants.ts           # ค่าคงที่ (ERROR_TYPES, SEVERITY, DRP_TYPES, ...)
-  types.ts               # TypeScript types
-  helpers.ts             # today/nowTime/shiftOf/format/nature-drug helpers
-  data.ts                # Supabase client + fetch/insert/update
-  seed.ts                # เดโม 100 เคส (โหมด demo)
-  style.ts               # แปลง CSS string → React style (คงดีไซน์เดิมแบบ pixel-perfect)
-supabase/schema.sql      # โครงตาราง + RLS
-project/                 # 🎨 ดีไซน์ต้นฉบับจาก Claude Design (อ้างอิง)
-chats/                   # 💬 บทสนทนาการออกแบบ (อ้างอิง)
-docs/                    # บันทึก session
+  MedDrpApp.tsx            (824)  🧠 แกนกลาง — state ก้อนเดียว + mount effect + นาฬิกา/จอมือถือ
+                                     + ประกอบ hooks ทั้งหมด → ส่งผ่าน Context + หัวเมนู/สลับหน้า
+  MedDrpContext.tsx         (92)  🔌 สายส่ง — provide ค่า/ฟังก์ชันครั้งเดียว ทุกหน้าเรียก useMedDrp()
+  MedDrpApp.types.ts        (57)  หน้าตา state (interface AppState)          ← Phase 1
+  ui.tsx                   (168)  คอมโพเนนต์ hover/focus (HButton/HInput/HSelect/...)
+
+  views/                          🖼 Phase 2 — แต่ละหน้าจอ = 1 ไฟล์
+    FormView.tsx           (808)  หน้ากรอกรายงาน (Med/DRP)
+    DashboardView.tsx      (434)  หน้าสรุป/กราฟ        └ dashData.ts    (374) คำนวณค่าสรุป/กราฟ
+    DetailModal.tsx        (551)  ป๊อปรายละเอียด+แก้ไข └ detailData.ts  (108) จัดข้อมูลที่โชว์
+    RecordsView.tsx        (260)  หน้ารายงาน+ตัวกรอง   └ recordsData.ts  (55) กรอง/จัดแถว
+    DrugsAdminView.tsx     (217)  หน้าคลังยา
+    SettingsView.tsx       (163)  หน้าเกี่ยวกับ
+    ManageView.tsx         (134)  หน้าตั้งค่า + ถังขยะ
+    DrugEditModal.tsx      (142)  ป๊อปเพิ่ม/แก้ยา
+    DrugLogModal.tsx       (102)  ป๊อปประวัติแก้ยา
+    ResultOverlay.tsx      (112)  หน้าผล "ส่งสำเร็จ / ไม่สำเร็จ"
+
+  hooks/                          ⚙️ Phase 3 — ตรรกะ/handler
+    useRecords.ts          (485)  ⭐ ก้อนใหญ่สุด — บันทึก/คิวส่ง/แก้ไข/ลบ/CSV
+    useFormMutations.ts    (216)  แก้ค่าในฟอร์ม · toggle ชิป · เลือกยา · สลับ ME↔DRP
+    useDrugsAdmin.ts       (179)  จัดการคลังยา (เพิ่ม/แก้/กรอง/CSV)
+    useRealtime.ts          (91)  ข้อมูลสดข้ามเครื่อง (subscribe incidents+drugs)
+    useEditForm.ts          (86)  โหมดแก้ไขเคส
+    useDashboard.ts         (53)  ช่วงเวลา + KPI วิ่งเลข
+    useAudioAlert.ts        (44)  เสียง/สั่นเตือน
+    useDraft.ts             (44)  ร่างอัตโนมัติ (auto-save)
+    useToast.ts             (21)  ข้อความเด้ง (toast)
+    core.ts                 (16)  Core {setState, stateRef} + alignIds (ใช้ร่วม)
+    keys.ts                  (6)  storage keys (REC/CFG/DRAFT/PENDING)
+
+lib/                              📐 Phase 1 (styles/records) + เดิม
+  constants.ts             (154)  ค่าคงที่ (ERROR_TYPES, SEVERITY, DRP_TYPES, ...)
+  data.ts                  (308)  Supabase client + fetch/insert/update + subscribe
+  helpers.ts               (200)  today/nowTime/shiftOf/format/nature-drug helpers
+  records.ts               (109)  ฟังก์ชันบริสุทธิ์ (อ่าน/เขียน localStorage, formatAn, ค้นหา, validate)  ← Phase 1
+  styles.ts                 (77)  สไตล์ปุ่ม/ชิป/nav/INPUT_*                  ← Phase 1
+  types.ts                 (137)  TypeScript types
+  style.ts                  (18)  แปลง CSS string → React style (คงดีไซน์เดิม pixel-perfect)
+  seed.ts                          (เลิกใช้แล้ว — ข้อมูลจริงดึงจาก Supabase)
+
+supabase/                 # schema.sql + migrations/ (โครงตาราง + RLS)
+project/                  # 🎨 ดีไซน์ต้นฉบับจาก Claude Design (อ้างอิง)
+chats/                    # 💬 บทสนทนาการออกแบบ (อ้างอิง)
+docs/                     # บันทึก session
 ```
 
 ---
