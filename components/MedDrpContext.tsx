@@ -4,7 +4,7 @@
 // สถานะยังเป็นก้อนเดียว (setState merge เดิม) · type นี้จะขยายเพิ่มทีละหน้าที่แยกออกมา
 import { createContext, useContext } from "react";
 import { AppState } from "@/components/MedDrpApp.types";
-import { Drug } from "@/lib/types";
+import { DashRange, Drug, Incident } from "@/lib/types";
 
 export type SetState = (u: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void;
 
@@ -29,6 +29,11 @@ export interface MedDrpCtx {
   requestCloseDrugEdit: () => void;
   saveDrug: () => void;
   forceCloseDrugEdit: () => void;
+  // ---- Dashboard (DashboardView) ----
+  orgName: string;
+  animateKpi: (idx: number, target: number) => void;
+  exportCsv: (subset?: Incident[]) => void;
+  setDashPreset: (p: DashRange["preset"]) => void;
 }
 
 export const MedDrpContext = createContext<MedDrpCtx | null>(null);
