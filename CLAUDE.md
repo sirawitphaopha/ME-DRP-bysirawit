@@ -158,6 +158,7 @@ npm run cf:deploy   # deploy ขึ้น Cloudflare (ต้อง wrangler logi
 - ถ้าไม่มี config → **โหมด demo** (seed **10 เคส** ในเครื่อง · v0.9.2.1 · ใช้ชื่อจาก `REPORTERS`)
 - `loadRecords`: โชว์ข้อมูล local ก่อนทันที แล้วค่อย fetch Supabase มาทับเบื้องหลัง (ห้ามทำให้ network บล็อก UI)
 - ตาราง/RLS อยู่ที่ `supabase/schema.sql` · ใช้ Supabase MCP tools กับ project id `ryewggkhunpuipgkgbfv`
+- **⚠️ ชื่อโปรเจกต์ Supabase ใน dashboard = "tb-calculator"** (ไม่ใช่ชื่อ med-drp — คงเป็นชื่อเดิมตอนสร้างแล้วเอามาใช้ต่อ) · ตัวจริงที่ถูกต้องคือ project id/ref `ryewggkhunpuipgkgbfv` (URL `https://ryewggkhunpuipgkgbfv.supabase.co`) · เวลารัน SQL ใน SQL Editor ให้ยืนยันด้วย **ref/URL** ไม่ใช่ชื่อโปรเจกต์ — อย่าตกใจว่าผิดโปรเจกต์ (พี่กันยืนยันแล้ว 19 ก.ค. 2569 · ตาราง `incidents`/`drugs` อยู่ในโปรเจกต์นี้)
 
 ## ข้อควรระวัง
 
